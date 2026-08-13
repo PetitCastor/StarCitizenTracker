@@ -11,6 +11,9 @@ public sealed class ProbeConfig
 
     public string OutputDir { get; set; } = "captures";
 
+    /// <summary>Trackers active by default when no --track args are given.</summary>
+    public List<string> Trackers { get; set; } = ["missions"];
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,

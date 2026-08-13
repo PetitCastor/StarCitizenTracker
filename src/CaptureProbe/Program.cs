@@ -1,23 +1,26 @@
-using System.Diagnostics;
-using System.Threading.Channels;
 using CaptureProbe;
+using CaptureProbe.Trackers;
 
-Console.WriteLine("=== Star Citizen Capture Probe (Phase 1) ===");
+Console.WriteLine("=== Star Citizen Scraper — Tracker Host (Phase 2) ===");
 
 var config = ProbeConfig.Load(Path.Combine(AppContext.BaseDirectory, "config.json"));
+
+// CLI: --track <name> (repeatable, overrides config), --save-frames, --verbose
+var verbose = args.Contains("--verbose", StringComparer.OrdinalIgnoreCase);
+var saveFrames = args.Contains("--save-frames", StringComparer.OrdinalIgnoreCase);
+var trackerNames = args
+    .Select((a, i) => (a, i))
+    .Where(t => t.a.Equals("--track", StringComparison.OrdinalIgnoreCase) && t.i + 1 < args.Length)
+    .Select(t => args[t.i + 1])
+    .ToList();
+if (trackerNames.Count == 0)
+    trackerNames = config.Trackers;
 
 var monitors = MonitorCapture.EnumerateMonitors();
 if (monitors.Count == 0)
 {
     Console.Error.WriteLine("No monitors found.");
     return 1;
-}
-
-Console.WriteLine("Monitors:");
-for (var i = 0; i < monitors.Count; i++)
-{
-    var m = monitors[i];
-    Console.WriteLine($"  [{i}] {m.DeviceName}  {m.Width}x{m.Height}{(m.IsPrimary ? "  (primary)" : "")}");
 }
 
 var monitorIndex = config.MonitorIndex;
@@ -28,33 +31,51 @@ if (monitorIndex < 0 || monitorIndex >= monitors.Count)
 }
 var monitor = monitors[monitorIndex];
 
+var ocr = new OcrPipeline();
+var records = new List<TrackerRecord>();
+
+void Emit(TrackerRecord record)
+{
+    records.Add(record);
+    Console.WriteLine();
+    Console.WriteLine($"===== {record.Tracker} capture ({record.Trigger}) at {record.Timestamp:HH:mm:ss.fff} =====");
+    Console.WriteLine(record.RawText);
+    Console.WriteLine("=====================================================");
+    Console.WriteLine();
+}
+
+var debugDir = saveFrames ? config.OutputDir : null;
+var available = new Dictionary<string, Func<ITracker>>(StringComparer.OrdinalIgnoreCase)
+{
+    ["missions"] = () => new MissionTracker(ocr, Emit, verbose, debugDir),
+};
+
+var trackers = new List<ITracker>();
+foreach (var name in trackerNames)
+{
+    if (available.TryGetValue(name, out var factory))
+        trackers.Add(factory());
+    else
+    {
+        Console.Error.WriteLine($"Unknown tracker '{name}'. Available: {string.Join(", ", available.Keys)}");
+        return 1;
+    }
+}
+
 var (modifiers, virtualKey) = HotkeyListener.ParseHotkey(config.Hotkey);
 
 Console.WriteLine($"Capturing: [{monitorIndex}] {monitor.DeviceName} {monitor.Width}x{monitor.Height}");
-Console.WriteLine($"Hotkey:    {config.Hotkey}");
-Console.WriteLine($"Output:    {config.OutputDir}");
+Console.WriteLine($"Trackers:  {string.Join(", ", trackers.Select(t => t.Name))}");
+Console.WriteLine($"Hotkey:    {config.Hotkey} (manual trigger)");
+Console.WriteLine($"OCR:       {ocr.Language}");
+Console.WriteLine($"Debug:     {(saveFrames ? $"saving pane PNG+txt to {config.OutputDir}" : "in-memory only, no files")}");
 
 using var capture = new MonitorCapture(monitor.Handle);
 if (!capture.BorderDisabled)
     Console.WriteLine("Note: OS refused to remove the yellow capture border (cosmetic only).");
 
-// Side-quest PoC: --watch polls the stream with Windows OCR instead of waiting for the hotkey.
-if (args.Contains("--watch", StringComparer.OrdinalIgnoreCase))
-{
-    using var watchCts = new CancellationTokenSource();
-    Console.CancelKeyPress += (_, e) =>
-    {
-        e.Cancel = true;
-        watchCts.Cancel();
-    };
-    var verbose = args.Contains("--verbose", StringComparer.OrdinalIgnoreCase);
-    await OcrWatcher.RunAsync(capture, config.OutputDir, verbose, watchCts.Token);
-    return 0;
-}
-
-// Hotkey presses are timestamped on the listener thread, processed here on the main loop.
-var presses = Channel.CreateUnbounded<long>();
-using var hotkey = new HotkeyListener(modifiers, virtualKey, () => presses.Writer.TryWrite(Stopwatch.GetTimestamp()));
+var host = new TrackerHost(capture, trackers);
+using var hotkey = new HotkeyListener(modifiers, virtualKey, host.TriggerManual);
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) =>
@@ -64,67 +85,14 @@ Console.CancelKeyPress += (_, e) =>
 };
 
 Console.WriteLine();
-Console.WriteLine($"Armed. Press {config.Hotkey} in-game to capture. Ctrl+C here to quit.");
+Console.WriteLine("Running. Ctrl+C to quit.");
 Console.WriteLine();
 
-var pressCount = 0;
-var failures = 0;
-var latenciesMs = new List<double>();
-
-try
-{
-    await foreach (var pressedAt in presses.Reader.ReadAllAsync(cts.Token))
-    {
-        pressCount++;
-        var frame = capture.TakeLatestFrame();
-        if (frame is null)
-        {
-            failures++;
-            Console.WriteLine($"[{pressCount,3}] NO FRAME — screen may be idle or capture not started yet.");
-            continue;
-        }
-
-        try
-        {
-            // Frame timestamps and Stopwatch both use QPC (time since boot), so this measures
-            // how stale the frame was at the moment the hotkey was pressed. Slightly negative
-            // means a fresher frame arrived between the press and the snapshot.
-            var pressSinceBoot = Stopwatch.GetElapsedTime(0, pressedAt);
-            var frameAgeMs = (pressSinceBoot - frame.SystemRelativeTime).TotalMilliseconds;
-
-            var path = await FrameSaver.SavePngAsync(frame, config.OutputDir);
-            var latencyMs = Stopwatch.GetElapsedTime(pressedAt).TotalMilliseconds;
-            latenciesMs.Add(latencyMs);
-
-            Console.WriteLine(
-                $"[{pressCount,3}] saved {Path.GetFileName(path)}  " +
-                $"{frame.ContentSize.Width}x{frame.ContentSize.Height}  " +
-                $"latency {latencyMs,7:F1} ms  frame age {frameAgeMs,6:F1} ms");
-        }
-        catch (Exception ex)
-        {
-            failures++;
-            Console.WriteLine($"[{pressCount,3}] FAILED: {ex.Message}");
-        }
-        finally
-        {
-            frame.Dispose();
-        }
-    }
-}
-catch (OperationCanceledException)
-{
-    // Ctrl+C — fall through to summary.
-}
+await host.RunAsync(cts.Token);
 
 Console.WriteLine();
-Console.WriteLine("=== Summary ===");
-Console.WriteLine($"Presses:  {pressCount}");
-Console.WriteLine($"Saved:    {latenciesMs.Count}");
-Console.WriteLine($"Failures: {failures}");
-if (latenciesMs.Count > 0)
-{
-    Console.WriteLine($"Latency ms  min {latenciesMs.Min():F1}  avg {latenciesMs.Average():F1}  max {latenciesMs.Max():F1}");
-}
+Console.WriteLine($"=== Summary: {records.Count} captures ===");
+foreach (var g in records.GroupBy(r => (r.Tracker, r.Trigger)))
+    Console.WriteLine($"  {g.Key.Tracker} ({g.Key.Trigger}): {g.Count()}");
 
 return 0;

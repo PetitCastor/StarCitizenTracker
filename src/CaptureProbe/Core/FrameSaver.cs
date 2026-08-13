@@ -11,13 +11,18 @@ public static class FrameSaver
     /// </summary>
     public static async Task<string> SavePngAsync(Direct3D11CaptureFrame frame, string outputDir)
     {
-        Directory.CreateDirectory(outputDir);
-        var path = Path.Combine(outputDir, $"capture_{DateTime.Now:yyyyMMdd_HHmmss_fff}.png");
-
         // GPU -> CPU copy handled by the OS; avoids hand-rolled staging-texture interop.
         using var premultiplied = await SoftwareBitmap.CreateCopyFromSurfaceAsync(
             frame.Surface, BitmapAlphaMode.Premultiplied);
         using var bitmap = SoftwareBitmap.Convert(premultiplied, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore);
+
+        return await SavePngAsync(bitmap, outputDir, "capture");
+    }
+
+    public static async Task<string> SavePngAsync(SoftwareBitmap bitmap, string outputDir, string prefix)
+    {
+        Directory.CreateDirectory(outputDir);
+        var path = Path.Combine(outputDir, $"{prefix}_{DateTime.Now:yyyyMMdd_HHmmss_fff}.png");
 
         using var fileStream = new FileStream(path, FileMode.Create, FileAccess.ReadWrite);
         var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, fileStream.AsRandomAccessStream());
