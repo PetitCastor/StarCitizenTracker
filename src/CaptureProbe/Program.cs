@@ -38,6 +38,20 @@ using var capture = new MonitorCapture(monitor.Handle);
 if (!capture.BorderDisabled)
     Console.WriteLine("Note: OS refused to remove the yellow capture border (cosmetic only).");
 
+// Side-quest PoC: --watch polls the stream with Windows OCR instead of waiting for the hotkey.
+if (args.Contains("--watch", StringComparer.OrdinalIgnoreCase))
+{
+    using var watchCts = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) =>
+    {
+        e.Cancel = true;
+        watchCts.Cancel();
+    };
+    var verbose = args.Contains("--verbose", StringComparer.OrdinalIgnoreCase);
+    await OcrWatcher.RunAsync(capture, config.OutputDir, verbose, watchCts.Token);
+    return 0;
+}
+
 // Hotkey presses are timestamped on the listener thread, processed here on the main loop.
 var presses = Channel.CreateUnbounded<long>();
 using var hotkey = new HotkeyListener(modifiers, virtualKey, () => presses.Writer.TryWrite(Stopwatch.GetTimestamp()));

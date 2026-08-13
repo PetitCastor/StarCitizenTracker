@@ -1,6 +1,23 @@
 # Side Quest — Auto-Capture Trigger Evaluation
 
-Status: evaluated 2026-08-13, no implementation. Hotkey remains primary trigger for Phase 1.
+Status: PoC VALIDATED 2026-08-13 — live in-game detection of ACCEPTED (1/10) -> (2/10) works.
+Hotkey remains primary trigger for Phase 1.
+
+## PoC results (branch feature/sidequest-poc)
+
+`CaptureProbe --watch [--verbose]` polls the WGC stream at ~2 Hz, crops a 420x100 ROI around
+the contract manager "ACCEPTED (n/m)" tab (2560x1440 coords: 1000,110), upscales 3x, runs
+built-in Windows.Media.Ocr, regexes the counter, logs changes + saves evidence PNG.
+
+- Live test: (1/10) -> (2/10) detected the moment the mission was accepted; evidence PNG
+  shows the full contract details on screen at that instant — ideal capture trigger timing.
+- 100/100 scans read the counter correctly; ~30 ms OCR per scan (80-100 ms first scan, JIT).
+- Full-screen OCR at 1:1 does NOT find the tab text — ROI crop + upscale is required.
+- No game files touched (Game.log exclusion respected) — pure screen capture.
+
+Implication for trigger design: watch the tab counter, not the toast. Counter increment =
+mission accepted while contract pane still open with all details visible. ROI coords are
+resolution-dependent — needs scaling for other resolutions later.
 
 ## Options ranked
 
