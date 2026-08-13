@@ -1,0 +1,32 @@
+# Visual Studio
+.vs/
+*.user
+*.rsuser
+*.suo
+*.sln.docstates
+
+# Build directories
+bin/
+obj/
+Debug/
+Release/
+
+# Runtime output
+captures/
+
+# Dependencies
+packages/
+.nuget/
+
+# IDE
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local user settings
+*.local.json
+local.config
