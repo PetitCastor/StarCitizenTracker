@@ -31,3 +31,8 @@ Thumbs.db
 # Local user settings
 *.local.json
 local.config
+
+# Local-only docs/notes
+/tasks/
+/*.md
+.rtk/
