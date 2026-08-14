@@ -30,6 +30,20 @@ public sealed record RefineryWorkOrder(
 public sealed record ParsedRow(string Name, decimal QtyScu, decimal YieldScu, double CropCenterY);
 
 /// <summary>
+/// A row parsed in raw integer cSCU — the unit the COMPLETED/PROCESSING panels and the ledger use.
+/// Kept distinct from <see cref="ParsedRow"/>'s decimal SCU so the completed-panel path never does a
+/// lossy /100 round-trip. <see cref="QtyCscu"/> is 0 for the two-column NAME/YIELD panels.
+/// </summary>
+public sealed record ParsedRowCscu(string Name, int QtyCscu, int YieldCscu, double CropCenterY);
+
+/// <summary>
+/// Result of a two-column yield-row extraction. The dropped-edge counts are the secondary
+/// truncation signal: a row clipped at the top or bottom of the ROI OCRs as garbage and is dropped,
+/// so a non-zero count means the visible list did not start/end cleanly and the read may be partial.
+/// </summary>
+public sealed record ExtractResult(IReadOnlyList<ParsedRowCscu> Rows, int DroppedTopEdge, int DroppedBottomEdge);
+
+/// <summary>
 /// Pure parsing for the refinery SETUP screen — no WinRT types, so it can run offline
 /// against replayed OCR results. Rows are reconstructed from word geometry because
 /// Windows OCR splits/merges lines unpredictably across the wide column gaps.
@@ -50,6 +64,19 @@ public static partial class RefineryParser
     // Two in-game formats seen: "33m 45s" (optionally with hours) and "03:12:36".
     [GeneratedRegex(@"(?<t>\d{1,2}:\d{2}:\d{2}|(?:\d+\s*h\s*)?\d+\s*m\s*\d+\s*s)", RegexOptions.IgnoreCase)]
     private static partial Regex TimePattern();
+
+    // COMPLETED / PROCESSING panels: "MATERIALS YIELDED (CSCU)" — a NAME column and a single YIELD
+    // column, no QTY. Same numeric class + OCR-confusion tolerance as RowPattern.
+    [GeneratedRegex(@"^(?<name>[A-Za-z][A-Za-z()\-'’ ]*?)\s+(?<yield>[0-9OolIiSsB,.]{1,12})$")]
+    private static partial Regex YieldRowPattern();
+
+    // The COMPLETED-panel checksum line, e.g. "YIELD 644".
+    [GeneratedRegex(@"YIELD\s*[:\-]?\s*(?<v>[0-9OolIiSsB.,]{1,12})", RegexOptions.IgnoreCase)]
+    private static partial Regex YieldTotalPattern();
+
+    // Slot index, e.g. "WORK ORDER 1" — logging/disambiguation only, never an identity key.
+    [GeneratedRegex(@"WORK\s*ORDER\s*(?<n>[0-9OolIiSsB]{1,3})", RegexOptions.IgnoreCase)]
+    private static partial Regex WorkOrderIndexPattern();
 
     /// <summary>
     /// Clusters the region's words into visual rows by vertical center, then parses each as
@@ -161,5 +188,92 @@ public static partial class RefineryParser
     {
         var m = TimePattern().Match(text);
         return m.Success ? m.Groups["t"].Value : null;
+    }
+
+    /// <summary>
+    /// Two-column NAME/YIELD variant of <see cref="ExtractRows"/> for the COMPLETED/PROCESSING panels
+    /// (no QTY column). Shares the same row clustering and edge handling, but *counts* the edge-clipped
+    /// clusters rather than silently dropping them, so the caller can flag a possibly-truncated read.
+    /// Yields are returned as raw integer cSCU (no /100 conversion).
+    /// </summary>
+    public static ExtractResult ExtractYieldRows(OcrRegionResult list, double edgeMarginFramePx = 10)
+    {
+        var words = list.AllWords().Where(w => !string.IsNullOrWhiteSpace(w.Text)).ToList();
+        if (words.Count == 0)
+            return new ExtractResult([], 0, 0);
+
+        var heights = words.Select(w => w.CropRect.Height).OrderBy(h => h).ToList();
+        var medianHeight = heights[heights.Count / 2];
+        var tolerance = Math.Max(2, medianHeight * 0.6);
+
+        var rows = new List<ParsedRowCscu>();
+        var margin = edgeMarginFramePx * list.EffectiveScale;
+        var droppedTop = 0;
+        var droppedBottom = 0;
+
+        foreach (var cluster in ClusterByCenterY(words, tolerance))
+        {
+            var top = cluster.Min(w => w.CropRect.Y);
+            var bottom = cluster.Max(w => w.CropRect.Bottom);
+            if (top < margin)
+            {
+                droppedTop++;
+                continue;
+            }
+            if (bottom > list.CropHeight - margin)
+            {
+                droppedBottom++;
+                continue;
+            }
+
+            var text = string.Join(' ', cluster.OrderBy(w => w.CropRect.X).Select(w => w.Text)).Trim();
+            var match = YieldRowPattern().Match(text);
+            if (!match.Success)
+                continue;
+
+            if (!TryParseCscu(match.Groups["yield"].Value, out var yieldCscu))
+                continue;
+
+            var name = NormalizeName(match.Groups["name"].Value);
+            var centerY = cluster.Average(w => w.CropRect.CenterY);
+            rows.Add(new ParsedRowCscu(name, 0, (int)yieldCscu, centerY));
+        }
+
+        return new ExtractResult(rows, droppedTop, droppedBottom);
+    }
+
+    /// <summary>Parses the COMPLETED-panel <c>YIELD</c> total, in cSCU. Null when absent/occluded.</summary>
+    public static int? ParseYieldTotal(string text)
+    {
+        var m = YieldTotalPattern().Match(text);
+        if (m.Success && TryParseCscu(m.Groups["v"].Value, out var labelled))
+            return (int)labelled;
+
+        // Fallback: the ROI is the total line alone, so the first genuinely numeric token is the total.
+        foreach (var token in text.Split([' ', '\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries))
+            if (TryParseCscu(token, out var v))
+                return (int)v;
+
+        return null;
+    }
+
+    /// <summary>Parses the reused slot index from "WORK ORDER 1". Logging/disambiguation only.</summary>
+    public static int? ParseWorkOrderIndex(string text)
+    {
+        var m = WorkOrderIndexPattern().Match(text);
+        return m.Success && TryParseCscu(m.Groups["n"].Value, out var v) ? (int)v : null;
+    }
+
+    /// <summary>Classifies the middle-column state header text into a <see cref="PanelState"/>.</summary>
+    public static PanelState Classify(string headerText)
+    {
+        var t = headerText.ToUpperInvariant();
+        if (t.Contains("COMPLETED"))
+            return PanelState.Completed;
+        if (t.Contains("PROCESSING"))
+            return PanelState.Processing;
+        if (t.Contains("SETUP"))
+            return PanelState.Setup;
+        return PanelState.None;
     }
 }

@@ -27,6 +27,16 @@ public sealed class ProbeConfig
     /// <summary>Status bar refresh cadence; values below 250 are clamped up at use.</summary>
     public int MetricsIntervalMs { get; set; } = 1000;
 
+    /// <summary>Persist observed refinery work orders to an append-only JSONL ledger.</summary>
+    public bool LedgerEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Ledger file path. Empty ⇒ <c>%LOCALAPPDATA%\StarCitizenTracker\orders.jsonl</c>. A relative
+    /// path resolves against this config file's directory (like <see cref="OutputDir"/>); a rooted
+    /// path is used verbatim. After <see cref="Load"/> this is always an absolute path.
+    /// </summary>
+    public string LedgerPath { get; set; } = "";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -40,6 +50,7 @@ public sealed class ProbeConfig
         {
             var defaults = new ProbeConfig();
             File.WriteAllText(path, JsonSerializer.Serialize(defaults, JsonOptions));
+            defaults.LedgerPath = ResolveLedgerPath(defaults.LedgerPath, path);
             return defaults;
         }
 
@@ -49,6 +60,26 @@ public sealed class ProbeConfig
         if (!Path.IsPathRooted(config.OutputDir))
             config.OutputDir = Path.GetFullPath(config.OutputDir, Path.GetDirectoryName(path)!);
 
+        config.LedgerPath = ResolveLedgerPath(config.LedgerPath, path);
+
         return config;
+    }
+
+    /// <summary>
+    /// Empty ⇒ the per-user LOCALAPPDATA default; relative ⇒ resolved against the config file's
+    /// directory; rooted ⇒ verbatim. Deliberately not modeled on <see cref="OutputDir"/>'s scheme,
+    /// since an empty value here means the special-folder default, not "relative to the config dir".
+    /// </summary>
+    private static string ResolveLedgerPath(string ledgerPath, string configPath)
+    {
+        if (string.IsNullOrWhiteSpace(ledgerPath))
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "StarCitizenTracker", "orders.jsonl");
+
+        if (!Path.IsPathRooted(ledgerPath))
+            return Path.GetFullPath(ledgerPath, Path.GetDirectoryName(configPath)!);
+
+        return ledgerPath;
     }
 }
