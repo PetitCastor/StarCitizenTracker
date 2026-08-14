@@ -1,5 +1,6 @@
 using TrackingService;
 using TrackingService.Metrics;
+using TrackingService.Orders;
 using TrackingService.Replay;
 using TrackingService.Trackers;
 using Windows.Graphics.Imaging;
@@ -62,10 +63,26 @@ void Emit(TrackerRecord record)
 }
 
 var debugDir = saveFrames ? config.OutputDir : null;
+
+// Replay and disabled-ledger runs write to a throwaway temp file so --replay and smoke runs never
+// touch the user's real orders.jsonl. The ledger is loaded once up front (rebuild from disk).
+var ledgerPath = replayDir is not null || !config.LedgerEnabled
+    ? Path.Combine(Path.GetTempPath(), $"sc-tracker-{(replayDir is not null ? "replay" : "ephemeral")}-{Guid.NewGuid():N}.jsonl")
+    : config.LedgerPath;
+var ledger = new OrderLedger(ledgerPath, sink.WriteLine);
+ledger.Load();
+
+void WriteLedgerSummary()
+{
+    sink.WriteLine($"Ledger: {ledger.All.Count} orders ({ledgerPath})");
+    foreach (var g in ledger.All.GroupBy(w => w.State).OrderBy(g => g.Key))
+        sink.WriteLine($"  {g.Key}: {g.Count()}");
+}
+
 var available = new Dictionary<string, Func<ITracker>>(StringComparer.OrdinalIgnoreCase)
 {
     ["missions"] = () => new MissionTracker(ocr, Emit, sink, verbose, debugDir),
-    ["refinery"] = () => new RefineryTracker(ocr, Emit, sink, verbose, debugDir),
+    ["refinery"] = () => new RefineryTracker(ocr, Emit, sink, verbose, debugDir, ledger),
 };
 
 var trackers = new List<ITracker>();
@@ -102,6 +119,7 @@ if (replayDir is not null)
     sink.WriteLine($"=== Replay summary: {records.Count} captures ===");
     foreach (var g in records.GroupBy(r => (r.Tracker, r.Trigger)))
         sink.WriteLine($"  {g.Key.Tracker} ({g.Key.Trigger}): {g.Count()}");
+    WriteLedgerSummary();
     return 0;
 }
 
@@ -167,5 +185,6 @@ sink.WriteLine();
 sink.WriteLine($"=== Summary: {records.Count} captures ===");
 foreach (var g in records.GroupBy(r => (r.Tracker, r.Trigger)))
     sink.WriteLine($"  {g.Key.Tracker} ({g.Key.Trigger}): {g.Count()}");
+WriteLedgerSummary();
 
 return 0;
