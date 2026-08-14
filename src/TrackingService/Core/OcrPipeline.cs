@@ -39,15 +39,46 @@ public sealed class OcrPipeline
     }
 
     /// <summary>
+    /// OCRs one region keeping per-word geometry, for table-shaped UI where column layout
+    /// matters. Word rects are in upscaled-crop space; the result records the scale that
+    /// was actually applied so callers can map back to frame pixels.
+    /// </summary>
+    public async Task<OcrRegionResult> ReadRegionDetailedAsync(SoftwareBitmap frame, BitmapBounds roi, double scale)
+    {
+        var effective = EffectiveScale(roi, scale);
+        using var crop = await CropAndScaleAsync(frame, roi, scale);
+        var result = await _engine.RecognizeAsync(crop);
+
+        var lines = new List<OcrLineInfo>(result.Lines.Count);
+        foreach (var line in result.Lines)
+        {
+            var words = new List<OcrWordInfo>(line.Words.Count);
+            foreach (var word in line.Words)
+            {
+                var r = word.BoundingRect;
+                words.Add(new OcrWordInfo(word.Text, new RectF(r.X, r.Y, r.Width, r.Height)));
+            }
+            lines.Add(new OcrLineInfo(line.Text, words));
+        }
+
+        return new OcrRegionResult(result.Text, lines, effective, roi.X, roi.Y, roi.Width, roi.Height);
+    }
+
+    /// <summary>The scale actually applied after clamping to the OCR engine's max dimension.</summary>
+    public static double EffectiveScale(BitmapBounds bounds, double scale)
+    {
+        var maxDim = OcrEngine.MaxImageDimension;
+        var largestSide = Math.Max(bounds.Width, bounds.Height);
+        return largestSide * scale > maxDim ? (double)maxDim / largestSide : scale;
+    }
+
+    /// <summary>
     /// Crops <paramref name="bounds"/> and upscales by <paramref name="scale"/>, clamped so the
     /// result stays within the OCR engine's max image dimension. Caller disposes the result.
     /// </summary>
     public async Task<SoftwareBitmap> CropAndScaleAsync(SoftwareBitmap source, BitmapBounds bounds, double scale)
     {
-        var maxDim = OcrEngine.MaxImageDimension;
-        var largestSide = Math.Max(bounds.Width, bounds.Height);
-        if (largestSide * scale > maxDim)
-            scale = (double)maxDim / largestSide;
+        scale = EffectiveScale(bounds, scale);
 
         using var stream = new InMemoryRandomAccessStream();
         var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.BmpEncoderId, stream);
