@@ -20,9 +20,10 @@ public class MissionTrackerReplayTests
     {
         var ocr = new OcrPipeline();
         var records = new List<TrackerRecord>();
-        var tracker = new MissionTracker(ocr, records.Add, verbose: false, debugDir: null);
+        using var sink = new ConsoleSink();
+        var tracker = new MissionTracker(ocr, records.Add, sink, verbose: false, debugDir: null);
 
-        await ReplayRunner.RunAsync(Path.Combine(FixturesRoot, "mission-accept-one"), [tracker]);
+        await ReplayRunner.RunAsync(Path.Combine(FixturesRoot, "mission-accept-one"), [tracker], sink);
 
         Assert.Single(records);
     }

@@ -13,14 +13,14 @@ public static class ReplayRunner
 {
     /// <returns>Number of frame PNGs processed, in replay order.</returns>
     public static async Task<int> RunAsync(
-        string replayDir, IReadOnlyList<ITracker> trackers, bool verbose = false)
+        string replayDir, IReadOnlyList<ITracker> trackers, ConsoleSink sink, bool verbose = false)
     {
         var frames = Directory.GetFiles(replayDir, "*.png").OrderBy(f => f, StringComparer.Ordinal).ToList();
 
         foreach (var framePath in frames)
         {
             if (verbose)
-                Console.WriteLine($"--- {Path.GetFileName(framePath)} ---");
+                sink.WriteLine($"--- {Path.GetFileName(framePath)} ---");
 
             using var fileStream = File.OpenRead(framePath);
             var decoder = await BitmapDecoder.CreateAsync(fileStream.AsRandomAccessStream());

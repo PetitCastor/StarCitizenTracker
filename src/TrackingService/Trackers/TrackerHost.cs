@@ -14,13 +14,15 @@ public sealed class TrackerHost
 
     private readonly MonitorCapture _capture;
     private readonly IReadOnlyList<ITracker> _trackers;
+    private readonly ConsoleSink _sink;
     private readonly Channel<DateTime> _manualPresses = Channel.CreateUnbounded<DateTime>();
     private int _lastFrameWidth, _lastFrameHeight;
 
-    public TrackerHost(MonitorCapture capture, IReadOnlyList<ITracker> trackers)
+    public TrackerHost(MonitorCapture capture, IReadOnlyList<ITracker> trackers, ConsoleSink sink)
     {
         _capture = capture;
         _trackers = trackers;
+        _sink = sink;
     }
 
     /// <summary>Thread-safe; called from the hotkey listener thread.</summary>
@@ -50,7 +52,7 @@ public sealed class TrackerHost
                 if (bitmap.PixelWidth != _lastFrameWidth || bitmap.PixelHeight != _lastFrameHeight)
                 {
                     (_lastFrameWidth, _lastFrameHeight) = (bitmap.PixelWidth, bitmap.PixelHeight);
-                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {RoiScaler.DescribeFrame(bitmap.PixelWidth, bitmap.PixelHeight)}");
+                    _sink.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {RoiScaler.DescribeFrame(bitmap.PixelWidth, bitmap.PixelHeight)}");
                 }
 
                 foreach (var tracker in _trackers)
@@ -67,7 +69,7 @@ public sealed class TrackerHost
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {tracker.Name}: scan failed: {ex.Message}");
+                        _sink.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {tracker.Name}: scan failed: {ex.Message}");
                     }
                 }
             }

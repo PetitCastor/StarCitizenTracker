@@ -1,14 +1,21 @@
 using TrackingService;
+using TrackingService.Metrics;
 using TrackingService.Replay;
 using TrackingService.Trackers;
 using Windows.Graphics.Imaging;
 
-Console.WriteLine("=== Star Citizen Scraper — Tracker Host (Phase 2) ===");
+// First statement so every later write goes through it and disposal (status-bar erase,
+// cursor restore) is guaranteed on every return path. Declared before the metrics
+// reporter on purpose: disposed last, so the timer stops before the sink shuts down.
+using var sink = new ConsoleSink();
+
+sink.WriteLine("=== Star Citizen Scraper — Tracker Host (Phase 2) ===");
 
 var config = ProbeConfig.Load(Path.Combine(AppContext.BaseDirectory, "config.json"));
 
 // CLI: --track <name> (repeatable, overrides config), --save-frames, --verbose,
-//      --replay <dir> (feed saved PNGs through the trackers instead of live capture)
+//      --replay <dir> (feed saved PNGs through the trackers instead of live capture),
+//      --ocr-lang <bcp47> (overrides config; blank = Windows display language)
 var verbose = args.Contains("--verbose", StringComparer.OrdinalIgnoreCase);
 var saveFrames = args.Contains("--save-frames", StringComparer.OrdinalIgnoreCase);
 
@@ -27,24 +34,38 @@ var trackerNames = args
 if (trackerNames.Count == 0)
     trackerNames = config.Trackers;
 
-var ocr = new OcrPipeline();
+// Missing/unsupported pack is user setup, not a bug: fail with the fix instructions, no stack trace.
+OcrPipeline ocr;
+try
+{
+    ocr = new OcrPipeline(ArgValue("--ocr-lang") ?? config.OcrLanguage);
+}
+catch (InvalidOperationException ex)
+{
+    Console.Error.WriteLine(ex.Message);
+    return 1;
+}
+
 var records = new List<TrackerRecord>();
 
+// One sink call per capture: each WriteLine erases/redraws the status bar, so five
+// separate calls would flicker it five times per tracker event.
 void Emit(TrackerRecord record)
 {
     records.Add(record);
-    Console.WriteLine();
-    Console.WriteLine($"===== {record.Tracker} capture ({record.Trigger}) at {record.Timestamp:HH:mm:ss.fff} =====");
-    Console.WriteLine(record.RawText);
-    Console.WriteLine("=====================================================");
-    Console.WriteLine();
+    sink.WriteLine(string.Join(Environment.NewLine,
+        "",
+        $"===== {record.Tracker} capture ({record.Trigger}) at {record.Timestamp:HH:mm:ss.fff} =====",
+        record.RawText,
+        "=====================================================",
+        ""));
 }
 
 var debugDir = saveFrames ? config.OutputDir : null;
 var available = new Dictionary<string, Func<ITracker>>(StringComparer.OrdinalIgnoreCase)
 {
-    ["missions"] = () => new MissionTracker(ocr, Emit, verbose, debugDir),
-    ["refinery"] = () => new RefineryTracker(ocr, Emit, verbose, debugDir),
+    ["missions"] = () => new MissionTracker(ocr, Emit, sink, verbose, debugDir),
+    ["refinery"] = () => new RefineryTracker(ocr, Emit, sink, verbose, debugDir),
 };
 
 var trackers = new List<ITracker>();
@@ -63,28 +84,29 @@ if (replayDir is not null)
 {
     // Offline mode: run saved full-frame PNGs (see FrameDumpTracker) through the trackers
     // in filename order (= chronological, FrameSaver names are timestamped). No capture,
-    // no hotkey — deterministic verification without the game running.
+    // no hotkey — deterministic verification without the game running. No metrics timer
+    // either: a 1 Hz status bar over a sub-second batch run is pure flicker.
     if (!Directory.Exists(replayDir))
     {
         Console.Error.WriteLine($"Replay directory not found: {replayDir}");
         return 1;
     }
 
-    Console.WriteLine($"Trackers:  {string.Join(", ", trackers.Select(t => t.Name))}");
-    Console.WriteLine();
+    sink.WriteLine($"Trackers:  {string.Join(", ", trackers.Select(t => t.Name))}");
+    sink.WriteLine();
 
-    var frameCount = await ReplayRunner.RunAsync(replayDir, trackers, verbose);
-    Console.WriteLine($"Replayed {frameCount} frames from {replayDir}");
+    var frameCount = await ReplayRunner.RunAsync(replayDir, trackers, sink, verbose);
+    sink.WriteLine($"Replayed {frameCount} frames from {replayDir}");
 
-    Console.WriteLine();
-    Console.WriteLine($"=== Replay summary: {records.Count} captures ===");
+    sink.WriteLine();
+    sink.WriteLine($"=== Replay summary: {records.Count} captures ===");
     foreach (var g in records.GroupBy(r => (r.Tracker, r.Trigger)))
-        Console.WriteLine($"  {g.Key.Tracker} ({g.Key.Trigger}): {g.Count()}");
+        sink.WriteLine($"  {g.Key.Tracker} ({g.Key.Trigger}): {g.Count()}");
     return 0;
 }
 
 if (saveFrames)
-    trackers.Add(new FrameDumpTracker(config.OutputDir)); // hotkey saves full frame for replay corpora
+    trackers.Add(new FrameDumpTracker(config.OutputDir, sink)); // hotkey saves full frame for replay corpora
 
 var monitors = MonitorCapture.EnumerateMonitors();
 if (monitors.Count == 0)
@@ -96,24 +118,28 @@ if (monitors.Count == 0)
 var monitorIndex = config.MonitorIndex;
 if (monitorIndex < 0 || monitorIndex >= monitors.Count)
 {
-    Console.WriteLine($"monitorIndex {monitorIndex} out of range, falling back to 0 (primary).");
+    sink.WriteLine($"monitorIndex {monitorIndex} out of range, falling back to 0 (primary).");
     monitorIndex = 0;
 }
 var monitor = monitors[monitorIndex];
 
 var (modifiers, virtualKey) = HotkeyListener.ParseHotkey(config.Hotkey);
 
-Console.WriteLine($"Capturing: [{monitorIndex}] {monitor.DeviceName} {monitor.Width}x{monitor.Height}");
-Console.WriteLine($"Trackers:  {string.Join(", ", trackers.Select(t => t.Name))}");
-Console.WriteLine($"Hotkey:    {config.Hotkey} (manual trigger)");
-Console.WriteLine($"OCR:       {ocr.Language}");
-Console.WriteLine($"Debug:     {(saveFrames ? $"saving debug PNG+txt and hotkey frames to {config.OutputDir}" : "in-memory only, no files")}");
+sink.WriteLine($"Capturing: [{monitorIndex}] {monitor.DeviceName} {monitor.Width}x{monitor.Height}");
+sink.WriteLine($"Trackers:  {string.Join(", ", trackers.Select(t => t.Name))}");
+sink.WriteLine($"Hotkey:    {config.Hotkey} (manual trigger)");
+var otherOcrPacks = OcrPipeline.AvailableLanguageTags.Where(t => t != ocr.LanguageTag).ToArray();
+sink.WriteLine($"OCR:       {ocr.Language}{(otherOcrPacks.Length > 0
+    ? $" — also installed: {string.Join(", ", otherOcrPacks)}"
+    : "")}");
+sink.WriteLine($"Debug:     {(saveFrames ? $"saving debug PNG+txt and hotkey frames to {config.OutputDir}" : "in-memory only, no files")}");
+sink.WriteLine($"Metrics:   {(config.MetricsEnabled ? $"live status bar every {config.MetricsIntervalMs} ms" : "disabled")}");
 
 using var capture = new MonitorCapture(monitor.Handle);
 if (!capture.BorderDisabled)
-    Console.WriteLine("Note: OS refused to remove the yellow capture border (cosmetic only).");
+    sink.WriteLine("Note: OS refused to remove the yellow capture border (cosmetic only).");
 
-var host = new TrackerHost(capture, trackers);
+var host = new TrackerHost(capture, trackers, sink);
 using var hotkey = new HotkeyListener(modifiers, virtualKey, host.TriggerManual);
 
 using var cts = new CancellationTokenSource();
@@ -123,15 +149,23 @@ Console.CancelKeyPress += (_, e) =>
     cts.Cancel();
 };
 
-Console.WriteLine();
-Console.WriteLine("Running. Ctrl+C to quit.");
-Console.WriteLine();
+sink.WriteLine();
+sink.WriteLine("Running. Ctrl+C to quit.");
+sink.WriteLine();
+
+// Declared after sink so it disposes first: the timer is fully stopped (in-flight tick
+// drained) before the sink erases the status line on shutdown.
+using var metrics = config.MetricsEnabled
+    ? new MetricsReporter(sink, TimeSpan.FromMilliseconds(config.MetricsIntervalMs))
+    : null;
 
 await host.RunAsync(cts.Token);
 
-Console.WriteLine();
-Console.WriteLine($"=== Summary: {records.Count} captures ===");
+metrics?.Dispose(); // stop status updates before the summary prints (using-dispose is a harmless no-op after this)
+
+sink.WriteLine();
+sink.WriteLine($"=== Summary: {records.Count} captures ===");
 foreach (var g in records.GroupBy(r => (r.Tracker, r.Trigger)))
-    Console.WriteLine($"  {g.Key.Tracker} ({g.Key.Trigger}): {g.Count()}");
+    sink.WriteLine($"  {g.Key.Tracker} ({g.Key.Trigger}): {g.Count()}");
 
 return 0;

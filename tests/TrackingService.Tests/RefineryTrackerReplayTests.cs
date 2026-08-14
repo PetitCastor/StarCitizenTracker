@@ -22,9 +22,10 @@ public class RefineryTrackerReplayTests
     {
         var ocr = new OcrPipeline();
         var records = new List<TrackerRecord>();
-        var tracker = new RefineryTracker(ocr, records.Add, verbose: false, debugDir: null);
+        using var sink = new ConsoleSink();
+        var tracker = new RefineryTracker(ocr, records.Add, sink, verbose: false, debugDir: null);
 
-        await ReplayRunner.RunAsync(Path.Combine(FixturesRoot, "refinery-confirm"), [tracker]);
+        await ReplayRunner.RunAsync(Path.Combine(FixturesRoot, "refinery-confirm"), [tracker], sink);
 
         Assert.Single(records);
     }
@@ -34,9 +35,10 @@ public class RefineryTrackerReplayTests
     {
         var ocr = new OcrPipeline();
         var records = new List<TrackerRecord>();
-        var tracker = new RefineryTracker(ocr, records.Add, verbose: false, debugDir: null);
+        using var sink = new ConsoleSink();
+        var tracker = new RefineryTracker(ocr, records.Add, sink, verbose: false, debugDir: null);
 
-        await ReplayRunner.RunAsync(Path.Combine(FixturesRoot, "refinery-cancel"), [tracker]);
+        await ReplayRunner.RunAsync(Path.Combine(FixturesRoot, "refinery-cancel"), [tracker], sink);
 
         Assert.Empty(records);
     }
