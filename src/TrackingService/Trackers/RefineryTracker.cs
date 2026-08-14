@@ -12,7 +12,8 @@ namespace TrackingService.Trackers;
 public sealed class RefineryTracker : ITracker
 {
     // Regions are placeholders pending calibration from --save-frames corpus captures.
-    // CALIBRATE (2560x1440) — same hardcoded-resolution convention as MissionTracker.
+    // CALIBRATE in 2560x1440 reference coordinates (RoiScaler.Reference*); RoiScaler maps
+    // them to the actual frame size at scan time.
     private static readonly BitmapBounds StationHeaderRoi = new() { X = 220, Y = 250, Width = 650, Height = 60 };
     private static readonly BitmapBounds SetupHeaderRoi = new() { X = 940, Y = 310, Width = 320, Height = 70 };
     private static readonly BitmapBounds ProcessingHeaderRoi = new() { X = 1450, Y = 310, Width = 420, Height = 70 };
@@ -20,7 +21,7 @@ public sealed class RefineryTracker : ITracker
     private static readonly BitmapBounds MaterialsListRoi = new() { X = 620, Y = 640, Width = 440, Height = 340 };
     private static readonly BitmapBounds FooterRoi = new() { X = 610, Y = 980, Width = 500, Height = 140 };
     private static readonly BitmapBounds ToggleStripRoi = new() { X = 1050, Y = 640, Width = 28, Height = 340 };
-    private const int ToggleColumnX = 1064; // CALIBRATE — frame-space sample column inside ToggleStripRoi
+    private const int ToggleColumnX = 1064; // CALIBRATE — reference-space sample column inside ToggleStripRoi
 
     private const double HeaderScale = 3.0;
     private const double ListScale = 2.5;
@@ -76,6 +77,10 @@ public sealed class RefineryTracker : ITracker
     // Orange filled toggle vs neutral dark gray. CALIBRATE against corpus frames,
     // including a hovered row (hover highlight shifts the background).
     internal static bool IsRefineOn((byte B, byte G, byte R) c) => c.R > 140 && c.R > c.B * 1.8;
+
+    /// <summary>Maps a reference-space ROI to this frame's pixel space.</summary>
+    private static BitmapBounds R(SoftwareBitmap frame, BitmapBounds referenceRoi)
+        => RoiScaler.ToFrame(referenceRoi, frame.PixelWidth, frame.PixelHeight);
 
     public async Task ScanAsync(SoftwareBitmap frame, CancellationToken ct)
     {
@@ -141,13 +146,14 @@ public sealed class RefineryTracker : ITracker
         _setupGoneTicks = 0;
 
         var sw = Stopwatch.StartNew();
-        var list = await _ocr.ReadRegionDetailedAsync(frame, MaterialsListRoi, ListScale);
-        var strip = await PixelStrip.CaptureAsync(_ocr, frame, ToggleStripRoi);
+        var list = await _ocr.ReadRegionDetailedAsync(frame, R(frame, MaterialsListRoi), ListScale);
+        var strip = await PixelStrip.CaptureAsync(_ocr, frame, R(frame, ToggleStripRoi));
+        var toggleColumnX = RoiScaler.ToFrameX(ToggleColumnX, frame.PixelWidth);
 
         foreach (var row in RefineryParser.ExtractRows(list))
         {
             var (_, frameY) = list.ToFramePoint(0, row.CropCenterY);
-            var refineOn = IsRefineOn(strip.AveragePatch(ToggleColumnX, frameY));
+            var refineOn = IsRefineOn(strip.AveragePatch(toggleColumnX, frameY));
             _acc.Merge(new MaterialRow(row.Name, row.QtyScu, row.YieldScu, refineOn));
         }
 
@@ -155,9 +161,9 @@ public sealed class RefineryTracker : ITracker
         // (each read re-encodes the full frame, so keep the per-tick OCR budget down).
         if (_tick % 4 == 0 || _acc.Station is null)
         {
-            var stationText = await _ocr.ReadRegionAsync(frame, StationHeaderRoi, HeaderScale);
-            var processText = await _ocr.ReadRegionAsync(frame, ProcessRoi, HeaderScale);
-            var footerText = await _ocr.ReadRegionAsync(frame, FooterRoi, FooterScale);
+            var stationText = await _ocr.ReadRegionAsync(frame, R(frame, StationHeaderRoi), HeaderScale);
+            var processText = await _ocr.ReadRegionAsync(frame, R(frame, ProcessRoi), HeaderScale);
+            var footerText = await _ocr.ReadRegionAsync(frame, R(frame, FooterRoi), FooterScale);
 
             // Last-good-wins: one bad OCR tick must not blank a field already captured.
             _acc.Station = RefineryParser.ParseStation(stationText) ?? _acc.Station;
@@ -182,8 +188,8 @@ public sealed class RefineryTracker : ITracker
         }
 
         // Calibration aid: dump raw OCR of the regions this tracker depends on.
-        var list = await _ocr.ReadRegionAsync(frame, MaterialsListRoi, ListScale);
-        var footer = await _ocr.ReadRegionAsync(frame, FooterRoi, FooterScale);
+        var list = await _ocr.ReadRegionAsync(frame, R(frame, MaterialsListRoi), ListScale);
+        var footer = await _ocr.ReadRegionAsync(frame, R(frame, FooterRoi), FooterScale);
         _emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Manual,
             $"[raw list ROI]\r\n{list}\r\n[raw footer ROI]\r\n{footer}"));
     }
@@ -201,15 +207,15 @@ public sealed class RefineryTracker : ITracker
 
         if (_debugDir is not null)
         {
-            using var listCrop = await _ocr.CropAndScaleAsync(frame, MaterialsListRoi, 1.0);
+            using var listCrop = await _ocr.CropAndScaleAsync(frame, R(frame, MaterialsListRoi), 1.0);
             var pngPath = await FrameSaver.SavePngAsync(listCrop, _debugDir, "refinery_list");
             await File.WriteAllTextAsync(Path.ChangeExtension(pngPath, ".txt"), order.ToText(), ct);
         }
     }
 
-    private async Task<bool> IsAnchorVisibleAsync(SoftwareBitmap frame, BitmapBounds roi, string anchor)
+    private async Task<bool> IsAnchorVisibleAsync(SoftwareBitmap frame, BitmapBounds referenceRoi, string anchor)
     {
-        var text = await _ocr.ReadRegionAsync(frame, roi, HeaderScale);
+        var text = await _ocr.ReadRegionAsync(frame, R(frame, referenceRoi), HeaderScale);
         return text.Contains(anchor, StringComparison.OrdinalIgnoreCase);
     }
 

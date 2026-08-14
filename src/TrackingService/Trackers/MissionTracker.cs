@@ -14,8 +14,8 @@ public sealed partial class MissionTracker : ITracker
     [GeneratedRegex(@"Accepted\s*\(?\s*(\d+)\s*/\s*(\d+)\s*\)?", RegexOptions.IgnoreCase)]
     private static partial Regex AcceptedCounter();
 
-    // Regions measured from live 2560x1440 captures (2026-08-13). Resolution-dependent —
-    // scaling for other resolutions is future work.
+    // Regions measured from live 2560x1440 captures (2026-08-13), kept in reference
+    // coordinates; RoiScaler maps them to the actual frame size at scan time.
     private static readonly BitmapBounds TabRoi = new() { X = 1000, Y = 110, Width = 420, Height = 100 };
     private const double TabScale = 3.0;
     private static readonly BitmapBounds PaneRoi = new() { X = 860, Y = 180, Width = 1560, Height = 1010 };
@@ -39,10 +39,14 @@ public sealed partial class MissionTracker : ITracker
 
     public string Name => "missions";
 
+    /// <summary>Maps a reference-space ROI to this frame's pixel space.</summary>
+    private static BitmapBounds R(SoftwareBitmap frame, BitmapBounds referenceRoi)
+        => RoiScaler.ToFrame(referenceRoi, frame.PixelWidth, frame.PixelHeight);
+
     public async Task ScanAsync(SoftwareBitmap frame, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
-        var tabText = await _ocr.ReadRegionAsync(frame, TabRoi, TabScale);
+        var tabText = await _ocr.ReadRegionAsync(frame, R(frame, TabRoi), TabScale);
         sw.Stop();
 
         if (_verbose)
@@ -98,7 +102,7 @@ public sealed partial class MissionTracker : ITracker
     private async Task CapturePaneAsync(SoftwareBitmap frame, TriggerKind trigger, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
-        var paneText = await _ocr.ReadRegionAsync(frame, PaneRoi, PaneScale);
+        var paneText = await _ocr.ReadRegionAsync(frame, R(frame, PaneRoi), PaneScale);
         sw.Stop();
 
         _emit(new TrackerRecord(DateTime.Now, Name, trigger, paneText));
@@ -108,7 +112,7 @@ public sealed partial class MissionTracker : ITracker
 
         if (_debugDir is not null)
         {
-            using var paneCrop = await _ocr.CropAndScaleAsync(frame, PaneRoi, 1.0);
+            using var paneCrop = await _ocr.CropAndScaleAsync(frame, R(frame, PaneRoi), 1.0);
             var pngPath = await FrameSaver.SavePngAsync(paneCrop, _debugDir, "mission_pane");
             await File.WriteAllTextAsync(Path.ChangeExtension(pngPath, ".txt"), paneText, ct);
         }
