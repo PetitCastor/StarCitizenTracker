@@ -83,27 +83,19 @@ public sealed class OcrPipeline
         using var stream = new InMemoryRandomAccessStream();
         var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.BmpEncoderId, stream);
         encoder.SetSoftwareBitmap(source);
+
+        // Optimization: Crop and scale during encode so the stream only holds the tiny result,
+        // massively reducing memory allocation and CPU overhead compared to doing it on decode.
+        encoder.BitmapTransform.Bounds = bounds;
+        encoder.BitmapTransform.ScaledWidth = (uint)(bounds.Width * scale);
+        encoder.BitmapTransform.ScaledHeight = (uint)(bounds.Height * scale);
+        encoder.BitmapTransform.InterpolationMode = BitmapInterpolationMode.Cubic;
+
         await encoder.FlushAsync();
 
         var decoder = await BitmapDecoder.CreateAsync(stream);
 
-        // BitmapTransform applies Bounds in the *scaled* coordinate space.
-        var transform = new BitmapTransform
-        {
-            ScaledWidth = (uint)(decoder.PixelWidth * scale),
-            ScaledHeight = (uint)(decoder.PixelHeight * scale),
-            InterpolationMode = BitmapInterpolationMode.Cubic,
-            Bounds = new BitmapBounds
-            {
-                X = (uint)(bounds.X * scale),
-                Y = (uint)(bounds.Y * scale),
-                Width = (uint)(bounds.Width * scale),
-                Height = (uint)(bounds.Height * scale),
-            },
-        };
-
         return await decoder.GetSoftwareBitmapAsync(
-            BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore, transform,
-            ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage);
+            BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore);
     }
 }

@@ -38,7 +38,10 @@ public sealed class PixelStrip
         crop.CopyToBuffer(buffer);
 
         var bytes = new byte[buffer.Length];
-        DataReader.FromBuffer(buffer).ReadBytes(bytes);
+        using (var reader = DataReader.FromBuffer(buffer))
+        {
+            reader.ReadBytes(bytes);
+        }
 
         var stride = height > 0 ? bytes.Length / height : 0;
         return new PixelStrip(bytes, stride, width, height, (int)strip.X, (int)strip.Y);
