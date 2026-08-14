@@ -1,3 +1,4 @@
+using Windows.Globalization;
 using Windows.Graphics.Capture;
 using Windows.Graphics.Imaging;
 using Windows.Media.Ocr;
@@ -14,13 +15,54 @@ public sealed class OcrPipeline
 {
     private readonly OcrEngine _engine;
 
-    public OcrPipeline()
+    /// <param name="languageTag">
+    /// BCP-47 tag of the recognizer to use, e.g. "en-US". Null or blank falls back to the first
+    /// user-profile language that has an OCR pack installed. Windows OCR cannot detect the
+    /// language from the image itself, so a machine whose display language differs from the
+    /// game's UI language must set this explicitly or every read comes back garbled.
+    /// </param>
+    public OcrPipeline(string? languageTag = null)
     {
-        _engine = OcrEngine.TryCreateFromUserProfileLanguages()
-                  ?? throw new InvalidOperationException("No OCR language pack available.");
+        _engine = string.IsNullOrWhiteSpace(languageTag)
+            ? OcrEngine.TryCreateFromUserProfileLanguages()
+              ?? throw new InvalidOperationException(DescribeNoUserProfilePack(AvailableLanguageTags))
+            : TryCreateFromTag(languageTag)
+              ?? throw new InvalidOperationException(DescribeMissingPack(languageTag, AvailableLanguageTags));
     }
 
-    public string Language => _engine.RecognizerLanguage.DisplayName;
+    /// <summary>Recognizer actually in use, as "Display name (tag)".</summary>
+    public string Language =>
+        $"{_engine.RecognizerLanguage.DisplayName} ({_engine.RecognizerLanguage.LanguageTag})";
+
+    /// <summary>BCP-47 tags of every OCR pack installed on this machine.</summary>
+    public static IReadOnlyList<string> AvailableLanguageTags =>
+        OcrEngine.AvailableRecognizerLanguages.Select(l => l.LanguageTag).ToArray();
+
+    /// <summary>Null when the tag is malformed or has no pack installed — both are user error, not a crash.</summary>
+    private static OcrEngine? TryCreateFromTag(string tag)
+    {
+        try
+        {
+            return OcrEngine.TryCreateFromLanguage(new Language(tag));
+        }
+        catch (ArgumentException)
+        {
+            return null; // Language(..) rejects anything that isn't a well-formed BCP-47 tag
+        }
+    }
+
+    internal static string DescribeMissingPack(string tag, IReadOnlyList<string> installed) =>
+        $"No OCR language pack for '{tag}'. {DescribeInstalled(installed)}";
+
+    internal static string DescribeNoUserProfilePack(IReadOnlyList<string> installed) =>
+        $"No OCR language pack matches your Windows display language. {DescribeInstalled(installed)}";
+
+    private static string DescribeInstalled(IReadOnlyList<string> installed) =>
+        (installed.Count == 0
+            ? "No OCR packs are installed at all."
+            : $"Installed: {string.Join(", ", installed)}. Set \"ocrLanguage\" in config.json (or --ocr-lang) to one of these.")
+        + " Packs are added under Settings > Time & language > Language & region >"
+        + " <language> > Language options > Optional language features.";
 
     /// <summary>Downloads a captured GPU frame into a CPU bitmap (caller disposes).</summary>
     public static async Task<SoftwareBitmap> ToSoftwareBitmapAsync(Direct3D11CaptureFrame frame)

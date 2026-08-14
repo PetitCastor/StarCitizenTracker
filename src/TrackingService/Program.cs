@@ -14,7 +14,8 @@ sink.WriteLine("=== Star Citizen Scraper — Tracker Host (Phase 2) ===");
 var config = ProbeConfig.Load(Path.Combine(AppContext.BaseDirectory, "config.json"));
 
 // CLI: --track <name> (repeatable, overrides config), --save-frames, --verbose,
-//      --replay <dir> (feed saved PNGs through the trackers instead of live capture)
+//      --replay <dir> (feed saved PNGs through the trackers instead of live capture),
+//      --ocr-lang <bcp47> (overrides config; blank = Windows display language)
 var verbose = args.Contains("--verbose", StringComparer.OrdinalIgnoreCase);
 var saveFrames = args.Contains("--save-frames", StringComparer.OrdinalIgnoreCase);
 
@@ -33,7 +34,18 @@ var trackerNames = args
 if (trackerNames.Count == 0)
     trackerNames = config.Trackers;
 
-var ocr = new OcrPipeline();
+// Missing/unsupported pack is user setup, not a bug: fail with the fix instructions, no stack trace.
+OcrPipeline ocr;
+try
+{
+    ocr = new OcrPipeline(ArgValue("--ocr-lang") ?? config.OcrLanguage);
+}
+catch (InvalidOperationException ex)
+{
+    Console.Error.WriteLine(ex.Message);
+    return 1;
+}
+
 var records = new List<TrackerRecord>();
 
 // One sink call per capture: each WriteLine erases/redraws the status bar, so five
@@ -116,7 +128,9 @@ var (modifiers, virtualKey) = HotkeyListener.ParseHotkey(config.Hotkey);
 sink.WriteLine($"Capturing: [{monitorIndex}] {monitor.DeviceName} {monitor.Width}x{monitor.Height}");
 sink.WriteLine($"Trackers:  {string.Join(", ", trackers.Select(t => t.Name))}");
 sink.WriteLine($"Hotkey:    {config.Hotkey} (manual trigger)");
-sink.WriteLine($"OCR:       {ocr.Language}");
+sink.WriteLine($"OCR:       {ocr.Language}{(OcrPipeline.AvailableLanguageTags.Count > 1
+    ? $" — also installed: {string.Join(", ", OcrPipeline.AvailableLanguageTags)}"
+    : "")}");
 sink.WriteLine($"Debug:     {(saveFrames ? $"saving debug PNG+txt and hotkey frames to {config.OutputDir}" : "in-memory only, no files")}");
 sink.WriteLine($"Metrics:   {(config.MetricsEnabled ? $"live status bar every {config.MetricsIntervalMs} ms" : "disabled")}");
 
