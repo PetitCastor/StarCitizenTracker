@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using TrackingService.Trackers;
 
 namespace TrackingService.Orders;
 
@@ -142,7 +141,7 @@ public sealed class OrderLedger
         return obs with
         {
             Id = Guid.NewGuid().ToString("N"),
-            Key = OrderMatcher.Key(obs.Station, obs.Materials.Select(m => m.Name)),
+            Key = OrderMatcher.Key(obs.Station, obs.Materials),
             RowsSeen = Math.Max(obs.RowsSeen, obs.Materials.Count),
             FirstSeen = firstSeen,
             Sources = Distinct(obs.Sources),
@@ -171,8 +170,11 @@ public sealed class OrderLedger
     }
 
     /// <summary>
-    /// Union by normalized name, last-seen (incoming) values win, original insertion order preserved
-    /// and new names appended — the same rule as the SETUP-side <c>RefineryTracker.Accumulator.Merge</c>.
+    /// Union by material key (base name + quality), original insertion order preserved and new
+    /// materials appended. Shared materials merge field-wise rather than wholesale, because different
+    /// panels are authoritative for different fields: SETUP carries QTY and the refine choice, while
+    /// PROCESSING/COMPLETED carry the real YIELD. Preferring the non-zero value for each lets a later
+    /// clean COMPLETED read fill in the yield without erasing the SETUP-only fields.
     /// </summary>
     private static IReadOnlyList<OrderMaterial> MergeMaterials(
         IReadOnlyList<OrderMaterial> existing, IReadOnlyList<OrderMaterial> incoming)
@@ -182,24 +184,31 @@ public sealed class OrderLedger
 
         foreach (var m in existing)
         {
-            index[RefineryParser.NormalizeName(m.Name)] = ordered.Count;
+            index[OrderMatcher.MaterialKey(m)] = ordered.Count;
             ordered.Add(m);
         }
 
         foreach (var m in incoming)
         {
-            var name = RefineryParser.NormalizeName(m.Name);
-            if (index.TryGetValue(name, out var i))
-                ordered[i] = m;
+            var key = OrderMatcher.MaterialKey(m);
+            if (index.TryGetValue(key, out var i))
+                ordered[i] = MergeMaterial(ordered[i], m);
             else
             {
-                index[name] = ordered.Count;
+                index[key] = ordered.Count;
                 ordered.Add(m);
             }
         }
 
         return ordered;
     }
+
+    private static OrderMaterial MergeMaterial(OrderMaterial existing, OrderMaterial incoming) => existing with
+    {
+        QtyCscu = incoming.QtyCscu != 0 ? incoming.QtyCscu : existing.QtyCscu,
+        YieldCscu = incoming.YieldCscu != 0 ? incoming.YieldCscu : existing.YieldCscu,
+        RefineOn = existing.RefineOn || incoming.RefineOn, // appearing on a yield panel proves it was refined
+    };
 
     /// <summary>H2 change detection: material set/values, state, completeness, total and header
     /// fields count; LastSeen, RowsSeen, FirstSeen and Sources deliberately do not (they must never
@@ -219,10 +228,10 @@ public sealed class OrderLedger
         if (a.Count != b.Count)
             return false;
 
-        var byName = b.ToDictionary(m => RefineryParser.NormalizeName(m.Name));
+        var byKey = b.ToDictionary(OrderMatcher.MaterialKey);
         foreach (var m in a)
         {
-            if (!byName.TryGetValue(RefineryParser.NormalizeName(m.Name), out var other))
+            if (!byKey.TryGetValue(OrderMatcher.MaterialKey(m), out var other))
                 return false;
             if (m.QtyCscu != other.QtyCscu || m.YieldCscu != other.YieldCscu || m.RefineOn != other.RefineOn)
                 return false;

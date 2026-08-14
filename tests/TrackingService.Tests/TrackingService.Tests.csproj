@@ -27,4 +27,10 @@
     <ProjectReference Include="..\..\src\TrackingService\TrackingService.csproj" />
   </ItemGroup>
 
+  <!-- Replay corpora for the integration tests: copied next to the test assembly so the relative
+       Fixtures/Replay/... paths resolve at run time. -->
+  <ItemGroup>
+    <None Include="Fixtures\**\*.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

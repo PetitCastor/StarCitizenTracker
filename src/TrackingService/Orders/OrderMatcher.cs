@@ -20,15 +20,21 @@ public static class OrderMatcher
     /// <summary>Per-material yield delta (cSCU) within which two yields count as "the same" for tie-break scoring.</summary>
     public const int YieldMatchToleranceCscu = 50;
 
-    /// <summary>Identity key: <c>STATION | sorted(normalized material names)</c>.</summary>
-    public static string Key(string station, IEnumerable<string> materialNames)
+    /// <summary>Minimum shared materials for two partial reads of the same order to be matched by overlap.</summary>
+    public const int MinOverlapMaterials = 2;
+
+    /// <summary>Per-material identity token: base name (ore-suffix stripped) plus the quality value.</summary>
+    public static string MaterialKey(OrderMaterial m) => $"{RefineryParser.BaseName(m.Name)}#{m.Quality}";
+
+    /// <summary>Identity key: <c>STATION | sorted(basename#quality)</c>.</summary>
+    public static string Key(string station, IEnumerable<OrderMaterial> materials)
     {
-        var names = materialNames
-            .Select(RefineryParser.NormalizeName)
-            .Where(n => n.Length > 0)
+        var keys = materials
+            .Select(MaterialKey)
+            .Where(k => k.Length > 2) // more than just "#0"
             .Distinct()
-            .OrderBy(n => n, StringComparer.Ordinal);
-        return $"{RefineryParser.NormalizeName(station)} | {string.Join(",", names)}";
+            .OrderBy(k => k, StringComparer.Ordinal);
+        return $"{RefineryParser.NormalizeName(station)} | {string.Join(",", keys)}";
     }
 
     /// <summary>A terminal record is closed and must not be a match candidate (H1).</summary>
@@ -51,8 +57,8 @@ public static class OrderMatcher
         score = 0;
 
         var candStation = RefineryParser.NormalizeName(candidate.Station);
-        var candNames = NameSet(candidate);
-        if (candNames.Count == 0)
+        var candKeys = MaterialKeySet(candidate);
+        if (candKeys.Count == 0)
             return false;
 
         foreach (var e in existing)
@@ -60,23 +66,28 @@ public static class OrderMatcher
             if (RefineryParser.NormalizeName(e.Station) != candStation)
                 continue;
 
-            var eNames = NameSet(e);
-            if (eNames.Count == 0)
+            var eKeys = MaterialKeySet(e);
+            if (eKeys.Count == 0)
                 continue;
 
-            // Containment gate: one set must contain the other (subset or superset).
-            if (!candNames.IsSubsetOf(eNames) && !eNames.IsSubsetOf(candNames))
-                continue;
-
-            var intersection = candNames.Count(eNames.Contains);
-            var union = candNames.Count + eNames.Count - intersection;
+            var intersection = candKeys.Count(eKeys.Contains);
+            var union = candKeys.Count + eKeys.Count - intersection;
             var jaccard = (double)intersection / union;
 
+            // Match gate (station already equal above). Either one set contains the other, or the two
+            // overlap strongly. Strong overlap tolerates the OCR reality that any single panel read can
+            // miss rows: a partial SETUP read must still merge into the fuller PROCESSING/COMPLETED read.
+            var contained = candKeys.IsSubsetOf(eKeys) || eKeys.IsSubsetOf(candKeys);
+            var strongOverlap = intersection >= MinOverlapMaterials
+                && intersection * 2 >= Math.Min(candKeys.Count, eKeys.Count);
+            if (!contained && !strongOverlap)
+                continue;
+
             // Tie-break: fraction of shared materials whose yields agree within tolerance. Weighted
-            // tiny so it only separates otherwise-equal (same station, same names) candidates.
-            var candYields = candidate.Materials.ToDictionary(m => m.Name, m => m.YieldCscu);
+            // tiny so it only separates otherwise-equal (same station, same materials) candidates.
+            var candYields = candidate.Materials.ToDictionary(MaterialKey, m => m.YieldCscu);
             var closeShared = e.Materials.Count(m =>
-                candYields.TryGetValue(m.Name, out var cy) &&
+                candYields.TryGetValue(MaterialKey(m), out var cy) &&
                 Math.Abs(cy - m.YieldCscu) <= YieldMatchToleranceCscu);
             var yieldCloseness = intersection > 0 ? (double)closeShared / intersection : 0;
 
@@ -94,8 +105,6 @@ public static class OrderMatcher
         return best is not null;
     }
 
-    private static HashSet<string> NameSet(WorkOrder w)
-        => w.Materials.Select(m => RefineryParser.NormalizeName(m.Name))
-            .Where(n => n.Length > 0)
-            .ToHashSet(StringComparer.Ordinal);
+    private static HashSet<string> MaterialKeySet(WorkOrder w)
+        => w.Materials.Select(MaterialKey).ToHashSet(StringComparer.Ordinal);
 }

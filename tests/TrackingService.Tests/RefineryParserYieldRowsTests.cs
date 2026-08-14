@@ -147,4 +147,40 @@ public class RefineryParserYieldRowsTests
     [InlineData("", PanelState.None)]
     public void Classify_MapsHeaderText(string header, PanelState expected)
         => Assert.Equal(expected, RefineryParser.Classify(header));
+
+    [Theory]
+    [InlineData("Torite (Ore)", "TORITE")]     // SETUP shows the ore-form suffix
+    [InlineData("TORITE", "TORITE")]           // PROCESSING/COMPLETED show the base name
+    [InlineData("Corundum (Raw)", "CORUNDUM")]
+    public void BaseName_StripsOreSuffix(string raw, string expected)
+        => Assert.Equal(expected, RefineryParser.BaseName(raw));
+
+    [Fact]
+    public void ExtractColumnarRows_SetupRow_SplitsNameAndNumbers_WithPlaceholderYield()
+    {
+        // SETUP layout: NAME QUALITY QTY YIELD(--), the name spanning two tokens incl. "(Ore)".
+        var words = new[]
+        {
+            Word("Torite", 0, 100), Word("(Ore)", 70, 100),
+            Word("262", 150, 100), Word("112", 220, 100), Word("--", 290, 100),
+        };
+
+        var row = Assert.Single(RefineryParser.ExtractColumnarRows(Region(words)).Rows);
+
+        Assert.Equal("TORITE (ORE)", row.Name);
+        Assert.Equal(262, row.Numbers[0]); // quality
+        Assert.Equal(112, row.Numbers[1]); // qty
+        Assert.Null(row.Numbers[2]);       // yield "--"
+    }
+
+    [Fact]
+    public void ExtractColumnarRows_CompletedRow_NameQualityYield()
+    {
+        var words = new[] { Word("Torite", 0, 100), Word("262", 150, 100), Word("50", 220, 100) };
+
+        var row = Assert.Single(RefineryParser.ExtractColumnarRows(Region(words)).Rows);
+
+        Assert.Equal("TORITE", row.Name);
+        Assert.Equal(new int?[] { 262, 50 }, row.Numbers);
+    }
 }

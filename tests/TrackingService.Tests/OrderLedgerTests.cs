@@ -49,7 +49,7 @@ public sealed class OrderLedgerTests : IDisposable
         DateTime when = default)
     {
         var at = when == default ? DateTime.Now : when;
-        var materials = mats.Select(m => new OrderMaterial(m.Name, m.Qty, m.Yield, false)).ToList();
+        var materials = mats.Select(m => new OrderMaterial(m.Name, 0, m.Qty, m.Yield, false)).ToList();
         return new WorkOrder(
             Id: "", Key: "", Station: station, Process: "Diffusion", Cost: "1000 aUEC", Eta: "1h",
             State: state, Completeness: completeness, Materials: materials, TotalYieldCscu: total,

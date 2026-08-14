@@ -20,7 +20,12 @@ public enum Completeness { Complete, Partial, Unknown }
 /// cSCU rather than the SETUP path's decimal SCU so that rounding drift can never split a record's
 /// identity or perturb a match score — divide by 100 only when displaying.
 /// </summary>
-public sealed record OrderMaterial(string Name, int QtyCscu, int YieldCscu, bool RefineOn);
+/// <param name="Quality">
+/// The per-row QUALITY value shown on every panel. It is part of the material's identity: a single
+/// work order can list the same material name twice at different qualities (e.g. two TORITE rows,
+/// quality 262 and 785), so name alone would collapse them.
+/// </param>
+public sealed record OrderMaterial(string Name, int Quality, int QtyCscu, int YieldCscu, bool RefineOn);
 
 /// <summary>
 /// A persistent refinery work order, observed and merged across the SETUP / PROCESSING / COMPLETED

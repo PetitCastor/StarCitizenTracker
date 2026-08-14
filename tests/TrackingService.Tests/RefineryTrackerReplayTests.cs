@@ -29,7 +29,7 @@ public class RefineryTrackerReplayTests
     private static RefineryTracker NewTracker(OcrPipeline ocr, ConsoleSink sink, OrderLedger ledger)
         => new(ocr, _ => { }, sink, verbose: false, debugDir: null, ledger);
 
-    [Fact(Skip = "awaiting in-game --save-frames corpus")]
+    [Fact]
     public async Task FullConfirmSequence_ProducesOneCollectedOrder()
     {
         var ocr = new OcrPipeline();

@@ -44,6 +44,18 @@ public sealed record ParsedRowCscu(string Name, int QtyCscu, int YieldCscu, doub
 public sealed record ExtractResult(IReadOnlyList<ParsedRowCscu> Rows, int DroppedTopEdge, int DroppedBottomEdge);
 
 /// <summary>
+/// One refinery-panel row parsed generically: a name plus its numeric columns left-to-right, each
+/// nullable (a <c>--</c> placeholder or an unparseable token becomes null). The three panels differ
+/// in their columns (SETUP: quality/qty/yield; PROCESSING: quality/yield/todo/done; COMPLETED:
+/// quality/yield), so the caller indexes <see cref="Numbers"/> per panel rather than the parser
+/// hard-coding a layout.
+/// </summary>
+public sealed record ColumnarRow(string Name, IReadOnlyList<int?> Numbers, double CropCenterY);
+
+/// <summary>Rows plus the edge-clip truncation counts (see <see cref="ExtractResult"/>).</summary>
+public sealed record ColumnarResult(IReadOnlyList<ColumnarRow> Rows, int DroppedTopEdge, int DroppedBottomEdge);
+
+/// <summary>
 /// Pure parsing for the refinery SETUP screen — no WinRT types, so it can run offline
 /// against replayed OCR results. Rows are reconstructed from word geometry because
 /// Windows OCR splits/merges lines unpredictably across the wide column gaps.
@@ -145,6 +157,94 @@ public static partial class RefineryParser
     public static string NormalizeName(string raw)
         => string.Join(' ', raw.Trim().Trim('.', ',', ':', '-').Split(' ', StringSplitOptions.RemoveEmptyEntries))
             .ToUpperInvariant();
+
+    /// <summary>
+    /// Material identity name with the ore-form suffix stripped, so the same material reads the same
+    /// across panels: SETUP shows "TORITE (ORE)" while PROCESSING/COMPLETED show just "TORITE".
+    /// Combined with the quality value it distinguishes two batches of the same material.
+    /// </summary>
+    public static string BaseName(string name)
+    {
+        var normalized = NormalizeName(name);
+        var paren = normalized.IndexOf('(');
+        return paren > 0 ? normalized[..paren].Trim() : normalized;
+    }
+
+    /// <summary>
+    /// Generic row extraction for any refinery panel: clusters words into visual rows, splits each
+    /// into a leading name and its numeric columns. Shares the clustering and edge-clip handling with
+    /// <see cref="ExtractYieldRows"/>, counting (not silently dropping) edge-touching rows.
+    /// </summary>
+    public static ColumnarResult ExtractColumnarRows(OcrRegionResult list, double edgeMarginFramePx = 10)
+    {
+        var words = list.AllWords().Where(w => !string.IsNullOrWhiteSpace(w.Text)).ToList();
+        if (words.Count == 0)
+            return new ColumnarResult([], 0, 0);
+
+        var heights = words.Select(w => w.CropRect.Height).OrderBy(h => h).ToList();
+        var medianHeight = heights[heights.Count / 2];
+        var tolerance = Math.Max(2, medianHeight * 0.6);
+
+        var rows = new List<ColumnarRow>();
+        var margin = edgeMarginFramePx * list.EffectiveScale;
+        var droppedTop = 0;
+        var droppedBottom = 0;
+
+        foreach (var cluster in ClusterByCenterY(words, tolerance))
+        {
+            var top = cluster.Min(w => w.CropRect.Y);
+            var bottom = cluster.Max(w => w.CropRect.Bottom);
+            if (top < margin)
+            {
+                droppedTop++;
+                continue;
+            }
+            if (bottom > list.CropHeight - margin)
+            {
+                droppedBottom++;
+                continue;
+            }
+
+            var tokens = cluster.OrderBy(w => w.CropRect.X).Select(w => w.Text).ToList();
+            var nameParts = new List<string>();
+            var numbers = new List<int?>();
+            var inNumbers = false;
+
+            foreach (var token in tokens)
+            {
+                if (!inNumbers && !LooksNumeric(token))
+                {
+                    nameParts.Add(token);
+                    continue;
+                }
+                inNumbers = true;
+                numbers.Add(TryParseCscu(token, out var v) ? (int)v : null);
+            }
+
+            var name = NormalizeName(string.Join(' ', nameParts));
+            if (name.Length == 0 || numbers.Count == 0)
+                continue;
+
+            rows.Add(new ColumnarRow(name, numbers, cluster.Average(w => w.CropRect.CenterY)));
+        }
+
+        return new ColumnarResult(rows, droppedTop, droppedBottom);
+    }
+
+    // A numeric-column token: the "--" placeholder, or a token that is mostly digits (tolerating the
+    // usual OCR digit confusions). Material-name tokens like "(ORE)" or "CORUNDUM" are not.
+    private static bool LooksNumeric(string token)
+    {
+        if (token is "--" or "—" or "-")
+            return true;
+        var core = token.Trim('(', ')', '%', ',', '.');
+        if (core.Length == 0)
+            return false;
+        // Mostly digit-ish (tolerating OCR letter/digit confusions, e.g. "S,OOl" -> 5001). Names like
+        // "ORE"/"GOLD"/"IRON" have at most one digit-ish letter over their length, so they fall through.
+        var digitish = core.Count(c => char.IsDigit(c) || "OolIiSsB".Contains(c));
+        return digitish >= core.Length - 1;
+    }
 
     /// <summary>Repairs common OCR digit confusions and parses an integer cSCU value.</summary>
     public static bool TryParseCscu(string token, out decimal value)

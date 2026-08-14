@@ -11,10 +11,10 @@ public class OrderMatcherTests
         OrderState state = OrderState.Pending,
         DateTime firstSeen = default)
     {
-        var materials = mats.Select(m => new OrderMaterial(m.Name, 0, m.Yield, false)).ToList();
+        var materials = mats.Select(m => new OrderMaterial(m.Name, 0, 0, m.Yield, false)).ToList();
         return new WorkOrder(
             Id: "id-" + Guid.NewGuid().ToString("N"),
-            Key: OrderMatcher.Key(station, materials.Select(m => m.Name)),
+            Key: OrderMatcher.Key(station, materials),
             Station: station,
             Process: "Diffusion",
             Cost: "1000 aUEC",
@@ -30,11 +30,21 @@ public class OrderMatcherTests
     }
 
     [Fact]
-    public void Key_IsOrderAndCaseInsensitiveOverNames()
+    public void Key_IsOrderAndCaseInsensitiveAndStripsOreSuffix()
     {
-        var a = OrderMatcher.Key("Rayari Anvik", ["Titanium", "Gold"]);
-        var b = OrderMatcher.Key("rayari anvik", ["gold", "  titanium  "]);
+        var a = OrderMatcher.Key("Rayari Anvik",
+            [new OrderMaterial("Titanium (Ore)", 262, 0, 0, false), new OrderMaterial("Gold", 100, 0, 0, false)]);
+        var b = OrderMatcher.Key("rayari anvik",
+            [new OrderMaterial("gold", 100, 0, 0, false), new OrderMaterial("  titanium  ", 262, 0, 0, false)]);
         Assert.Equal(a, b);
+    }
+
+    [Fact]
+    public void Key_SameNameDifferentQuality_AreDistinctInKey()
+    {
+        var a = OrderMatcher.Key("S", [new OrderMaterial("Torite (Ore)", 262, 0, 0, false)]);
+        var b = OrderMatcher.Key("S", [new OrderMaterial("Torite (Ore)", 785, 0, 0, false)]);
+        Assert.NotEqual(a, b);
     }
 
     [Fact]
