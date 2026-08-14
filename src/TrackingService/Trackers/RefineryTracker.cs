@@ -32,7 +32,7 @@ public sealed class RefineryTracker : ITracker
 
     private enum State { Idle, Accumulating, AwaitingReset }
 
-    private sealed class Accumulator
+    internal sealed class Accumulator
     {
         private int _nextOrder;
         public readonly Dictionary<string, (int Order, MaterialRow Row)> Rows = new(StringComparer.OrdinalIgnoreCase);
@@ -75,7 +75,7 @@ public sealed class RefineryTracker : ITracker
 
     // Orange filled toggle vs neutral dark gray. CALIBRATE against corpus frames,
     // including a hovered row (hover highlight shifts the background).
-    private static bool IsRefineOn((byte B, byte G, byte R) c) => c.R > 140 && c.R > c.B * 1.8;
+    internal static bool IsRefineOn((byte B, byte G, byte R) c) => c.R > 140 && c.R > c.B * 1.8;
 
     public async Task ScanAsync(SoftwareBitmap frame, CancellationToken ct)
     {

@@ -1,4 +1,5 @@
 using TrackingService;
+using TrackingService.Replay;
 using TrackingService.Trackers;
 using Windows.Graphics.Imaging;
 
@@ -69,23 +70,11 @@ if (replayDir is not null)
         return 1;
     }
 
-    var frames = Directory.GetFiles(replayDir, "*.png").OrderBy(f => f, StringComparer.Ordinal).ToList();
-    Console.WriteLine($"Replaying {frames.Count} frames from {replayDir}");
     Console.WriteLine($"Trackers:  {string.Join(", ", trackers.Select(t => t.Name))}");
     Console.WriteLine();
 
-    foreach (var framePath in frames)
-    {
-        if (verbose)
-            Console.WriteLine($"--- {Path.GetFileName(framePath)} ---");
-
-        using var fileStream = File.OpenRead(framePath);
-        var decoder = await BitmapDecoder.CreateAsync(fileStream.AsRandomAccessStream());
-        using var bitmap = await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore);
-
-        foreach (var tracker in trackers)
-            await tracker.ScanAsync(bitmap, CancellationToken.None);
-    }
+    var frameCount = await ReplayRunner.RunAsync(replayDir, trackers, verbose);
+    Console.WriteLine($"Replayed {frameCount} frames from {replayDir}");
 
     Console.WriteLine();
     Console.WriteLine($"=== Replay summary: {records.Count} captures ===");

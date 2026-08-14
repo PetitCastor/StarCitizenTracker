@@ -18,7 +18,7 @@ public sealed class PixelStrip
     public int FrameX { get; }
     public int FrameY { get; }
 
-    private PixelStrip(byte[] bgra, int stride, int width, int height, int frameX, int frameY)
+    internal PixelStrip(byte[] bgra, int stride, int width, int height, int frameX, int frameY)
     {
         _bgra = bgra;
         _stride = stride;
