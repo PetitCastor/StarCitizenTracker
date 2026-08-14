@@ -128,8 +128,9 @@ var (modifiers, virtualKey) = HotkeyListener.ParseHotkey(config.Hotkey);
 sink.WriteLine($"Capturing: [{monitorIndex}] {monitor.DeviceName} {monitor.Width}x{monitor.Height}");
 sink.WriteLine($"Trackers:  {string.Join(", ", trackers.Select(t => t.Name))}");
 sink.WriteLine($"Hotkey:    {config.Hotkey} (manual trigger)");
-sink.WriteLine($"OCR:       {ocr.Language}{(OcrPipeline.AvailableLanguageTags.Count > 1
-    ? $" — also installed: {string.Join(", ", OcrPipeline.AvailableLanguageTags)}"
+var otherOcrPacks = OcrPipeline.AvailableLanguageTags.Where(t => t != ocr.LanguageTag).ToArray();
+sink.WriteLine($"OCR:       {ocr.Language}{(otherOcrPacks.Length > 0
+    ? $" — also installed: {string.Join(", ", otherOcrPacks)}"
     : "")}");
 sink.WriteLine($"Debug:     {(saveFrames ? $"saving debug PNG+txt and hotkey frames to {config.OutputDir}" : "in-memory only, no files")}");
 sink.WriteLine($"Metrics:   {(config.MetricsEnabled ? $"live status bar every {config.MetricsIntervalMs} ms" : "disabled")}");

@@ -34,6 +34,9 @@ public sealed class OcrPipeline
     public string Language =>
         $"{_engine.RecognizerLanguage.DisplayName} ({_engine.RecognizerLanguage.LanguageTag})";
 
+    /// <summary>BCP-47 tag of the recognizer actually in use.</summary>
+    public string LanguageTag => _engine.RecognizerLanguage.LanguageTag;
+
     /// <summary>BCP-47 tags of every OCR pack installed on this machine.</summary>
     public static IReadOnlyList<string> AvailableLanguageTags =>
         OcrEngine.AvailableRecognizerLanguages.Select(l => l.LanguageTag).ToArray();
