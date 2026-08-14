@@ -4,7 +4,7 @@ using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.DirectX.Direct3D11;
 
-namespace CaptureProbe;
+namespace TrackingService;
 
 public sealed record MonitorInfo(IntPtr Handle, string DeviceName, int Width, int Height, bool IsPrimary);
 

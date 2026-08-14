@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace CaptureProbe;
+namespace TrackingService;
 
 public sealed class ProbeConfig
 {

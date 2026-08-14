@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace CaptureProbe;
+namespace TrackingService;
 
 /// <summary>
 /// Global hotkey via a low-level keyboard hook (WH_KEYBOARD_LL) on a dedicated

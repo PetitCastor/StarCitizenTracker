@@ -1,6 +1,6 @@
 using System.Threading.Channels;
 
-namespace CaptureProbe.Trackers;
+namespace TrackingService.Trackers;
 
 /// <summary>
 /// Owns the scan cadence: pulls the latest frame from the shared capture session,

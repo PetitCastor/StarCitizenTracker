@@ -1,4 +1,4 @@
-﻿namespace CaptureProbe.Trackers
+﻿namespace TrackingService.Trackers
 {
     public enum TriggerKind { Auto, Manual }
 }

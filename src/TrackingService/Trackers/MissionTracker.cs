@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Windows.Graphics.Imaging;
 
-namespace CaptureProbe.Trackers;
+namespace TrackingService.Trackers;
 
 /// <summary>
 /// Tracks mission acceptance: watches the contract manager's "ACCEPTED (n/m)" tab counter;

@@ -1,7 +1,7 @@
 using Windows.Graphics.Capture;
 using Windows.Graphics.Imaging;
 
-namespace CaptureProbe;
+namespace TrackingService;
 
 public static class FrameSaver
 {

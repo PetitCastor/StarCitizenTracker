@@ -3,7 +3,7 @@ using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX.Direct3D11;
 using WinRT;
 
-namespace CaptureProbe;
+namespace TrackingService;
 
 /// <summary>
 /// Win32/COM interop needed to use Windows.Graphics.Capture from an unpackaged desktop app:

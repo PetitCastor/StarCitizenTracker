@@ -3,7 +3,7 @@ using Windows.Graphics.Imaging;
 using Windows.Media.Ocr;
 using Windows.Storage.Streams;
 
-namespace CaptureProbe;
+namespace TrackingService;
 
 /// <summary>
 /// In-memory OCR service shared by all trackers: GPU frame -> SoftwareBitmap -> ROI crop +

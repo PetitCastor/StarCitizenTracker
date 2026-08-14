@@ -1,6 +1,6 @@
 using Windows.Graphics.Imaging;
 
-namespace CaptureProbe.Trackers;
+namespace TrackingService.Trackers;
 
 /// <summary>
 /// A self-contained in-game event tracker: owns its trigger condition, screen regions,
