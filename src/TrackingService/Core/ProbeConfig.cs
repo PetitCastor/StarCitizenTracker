@@ -14,6 +14,12 @@ public sealed class ProbeConfig
     /// <summary>Trackers active by default when no --track args are given.</summary>
     public List<string> Trackers { get; set; } = ["missions"];
 
+    /// <summary>Live CPU/memory/GPU status bar at the bottom of the console (live mode only).</summary>
+    public bool MetricsEnabled { get; set; } = true;
+
+    /// <summary>Status bar refresh cadence; values below 250 are clamped up at use.</summary>
+    public int MetricsIntervalMs { get; set; } = 1000;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,

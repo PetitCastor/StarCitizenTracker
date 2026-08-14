@@ -55,6 +55,7 @@ public sealed class RefineryTracker : ITracker
 
     private readonly OcrPipeline _ocr;
     private readonly Action<TrackerRecord> _emit;
+    private readonly ConsoleSink _sink;
     private readonly bool _verbose;
     private readonly string? _debugDir;
 
@@ -64,10 +65,11 @@ public sealed class RefineryTracker : ITracker
     private int _setupGoneTicks;
     private int _tick;
 
-    public RefineryTracker(OcrPipeline ocr, Action<TrackerRecord> emit, bool verbose, string? debugDir)
+    public RefineryTracker(OcrPipeline ocr, Action<TrackerRecord> emit, ConsoleSink sink, bool verbose, string? debugDir)
     {
         _ocr = ocr;
         _emit = emit;
+        _sink = sink;
         _verbose = verbose;
         _debugDir = debugDir;
     }
@@ -222,6 +224,6 @@ public sealed class RefineryTracker : ITracker
     private void Log(string message)
     {
         if (_verbose)
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] [{Name}] {message}");
+            _sink.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] [{Name}] {message}");
     }
 }

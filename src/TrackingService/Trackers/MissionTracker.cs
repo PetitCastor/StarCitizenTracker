@@ -23,16 +23,18 @@ public sealed partial class MissionTracker : ITracker
 
     private readonly OcrPipeline _ocr;
     private readonly Action<TrackerRecord> _emit;
+    private readonly ConsoleSink _sink;
     private readonly bool _verbose;
     private readonly string? _debugDir; // non-null: save pane PNG + txt per capture
 
     private string? _lastCounter;
     private int _lastAcceptedCount = -1;
 
-    public MissionTracker(OcrPipeline ocr, Action<TrackerRecord> emit, bool verbose, string? debugDir)
+    public MissionTracker(OcrPipeline ocr, Action<TrackerRecord> emit, ConsoleSink sink, bool verbose, string? debugDir)
     {
         _ocr = ocr;
         _emit = emit;
+        _sink = sink;
         _verbose = verbose;
         _debugDir = debugDir;
     }
@@ -50,13 +52,13 @@ public sealed partial class MissionTracker : ITracker
         sw.Stop();
 
         if (_verbose)
-            Console.WriteLine($"[{Name}] tab ocr {sw.ElapsedMilliseconds} ms: {tabText.ReplaceLineEndings(" ")}");
+            _sink.WriteLine($"[{Name}] tab ocr {sw.ElapsedMilliseconds} ms: {tabText.ReplaceLineEndings(" ")}");
 
         var parsed = ParseAcceptedCounter(tabText);
         if (parsed is null)
         {
             if (_lastCounter is not null && _verbose)
-                Console.WriteLine($"[{Name}] counter no longer visible (was {_lastCounter})");
+                _sink.WriteLine($"[{Name}] counter no longer visible (was {_lastCounter})");
             _lastCounter = null;
             return;
         }
@@ -69,7 +71,7 @@ public sealed partial class MissionTracker : ITracker
             // Only an *increment* means a mission was just accepted; decrements are
             // completions/abandons, and the first sighting is just the pane opening.
             var isNewMission = IsNewMissionAccepted(_lastAcceptedCount, accepted);
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] [{Name}] counter {_lastCounter ?? "none"} -> {counter}");
+            _sink.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] [{Name}] counter {_lastCounter ?? "none"} -> {counter}");
 
             if (isNewMission)
                 await CapturePaneAsync(frame, TriggerKind.Auto, ct);
@@ -108,7 +110,7 @@ public sealed partial class MissionTracker : ITracker
         _emit(new TrackerRecord(DateTime.Now, Name, trigger, paneText));
 
         if (_verbose)
-            Console.WriteLine($"[{Name}] pane ocr {sw.ElapsedMilliseconds} ms, {paneText.Length} chars");
+            _sink.WriteLine($"[{Name}] pane ocr {sw.ElapsedMilliseconds} ms, {paneText.Length} chars");
 
         if (_debugDir is not null)
         {

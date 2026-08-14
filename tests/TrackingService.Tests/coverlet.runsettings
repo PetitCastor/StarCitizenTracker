@@ -22,6 +22,9 @@
             **/Core/ProbeConfig.cs,
             **/Trackers/TrackerHost.cs,
             **/Trackers/FrameDumpTracker.cs,
+            **/Core/ConsoleSink.cs,
+            **/Metrics/MetricsSampler.cs,
+            **/Metrics/MetricsReporter.cs,
             **/Program.cs
           </ExcludeByFile>
         </Configuration>
