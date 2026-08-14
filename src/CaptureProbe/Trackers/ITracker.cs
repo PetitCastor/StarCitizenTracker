@@ -2,11 +2,6 @@ using Windows.Graphics.Imaging;
 
 namespace CaptureProbe.Trackers;
 
-public enum TriggerKind { Auto, Manual }
-
-/// <summary>One captured event emitted by a tracker.</summary>
-public sealed record TrackerRecord(DateTime Timestamp, string Tracker, TriggerKind Trigger, string RawText);
-
 /// <summary>
 /// A self-contained in-game event tracker: owns its trigger condition, screen regions,
 /// and (in later phases) parser and output sink. Trackers are selected at launch
