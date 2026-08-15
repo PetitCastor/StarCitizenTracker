@@ -179,25 +179,18 @@ public sealed class OrderLedger
     private static IReadOnlyList<OrderMaterial> MergeMaterials(
         IReadOnlyList<OrderMaterial> existing, IReadOnlyList<OrderMaterial> incoming)
     {
-        var ordered = new List<OrderMaterial>();
-        var index = new Dictionary<string, int>(StringComparer.Ordinal);
-
-        foreach (var m in existing)
-        {
-            index[OrderMatcher.MaterialKey(m)] = ordered.Count;
-            ordered.Add(m);
-        }
+        var ordered = new List<OrderMaterial>(existing);
 
         foreach (var m in incoming)
         {
-            var key = OrderMatcher.MaterialKey(m);
-            if (index.TryGetValue(key, out var i))
+            // Pair by SameMaterial (quality + name-token containment) rather than an exact key, so the
+            // raw→refined rename ("ICE (RAW)" → "PRESSURIZED ICE") merges field-wise onto one row
+            // instead of appending a duplicate.
+            var i = ordered.FindIndex(e => OrderMatcher.SameMaterial(e, m));
+            if (i >= 0)
                 ordered[i] = MergeMaterial(ordered[i], m);
             else
-            {
-                index[key] = ordered.Count;
                 ordered.Add(m);
-            }
         }
 
         return ordered;
@@ -228,13 +221,16 @@ public sealed class OrderLedger
         if (a.Count != b.Count)
             return false;
 
-        var byKey = b.ToDictionary(OrderMatcher.MaterialKey);
+        var remaining = new List<OrderMaterial>(b);
         foreach (var m in a)
         {
-            if (!byKey.TryGetValue(OrderMatcher.MaterialKey(m), out var other))
+            var i = remaining.FindIndex(other => OrderMatcher.SameMaterial(other, m));
+            if (i < 0)
                 return false;
+            var other = remaining[i];
             if (m.QtyCscu != other.QtyCscu || m.YieldCscu != other.YieldCscu || m.RefineOn != other.RefineOn)
                 return false;
+            remaining.RemoveAt(i); // consume so duplicate-name rows must each find a distinct partner
         }
 
         return true;

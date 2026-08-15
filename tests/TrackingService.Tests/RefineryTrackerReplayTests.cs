@@ -44,6 +44,32 @@ public class RefineryTrackerReplayTests
         Assert.Equal(Completeness.Complete, order.Completeness);
     }
 
+    [Fact]
+    public async Task RawToRefinedRename_MergesIntoOneOrder()
+    {
+        // The refinery renames the raw input to its refined product between panels
+        // (SETUP "ICE (RAW)" -> PROCESSING/COMPLETED "PRESSURIZED ICE"). Quality is stable
+        // across the rename, so the two panels must resolve to ONE order with ONE material,
+        // not split into a yield-less SETUP order plus an orphaned COMPLETED order.
+        // This corpus was hotkey-captured through COMPLETED only (the live collection landed a few
+        // seconds after the last frame), so it verifies the merge and reaches Ready/Complete — the
+        // Collected transition is exercised by FullConfirmSequence, which captured the modal close.
+        var ocr = new OcrPipeline();
+        using var sink = new ConsoleSink();
+        var ledger = TempLedger();
+        var tracker = NewTracker(ocr, sink, ledger);
+
+        await ReplayRunner.RunAsync(Path.Combine(FixturesRoot, "refinery-ice-rename"), [tracker], sink);
+
+        var order = Assert.Single(ledger.All);
+        Assert.True(order.State >= OrderState.Ready, $"expected Ready or later, got {order.State}");
+        Assert.Equal(Completeness.Complete, order.Completeness);
+        var material = Assert.Single(order.Materials);
+        Assert.Equal(714, material.Quality);
+        Assert.True(material.YieldCscu > 0, "refined yield must merge onto the material");
+        Assert.NotNull(order.TotalYieldCscu);
+    }
+
     [Fact(Skip = "awaiting in-game --save-frames corpus")]
     public async Task CancelSequence_ProducesNoLedgerRecord()
     {
