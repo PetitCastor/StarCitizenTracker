@@ -4,5 +4,8 @@
   "outputDir": "Z:\\Projects\\Star Citizen\\Scraper\\captures",
   "ocrLanguage": "",
   "metricsEnabled": true,
-  "metricsIntervalMs": 1000
+  "metricsIntervalMs": 1000,
+  "trackers": ["missions", "refinery"],
+  "ledgerEnabled": true,
+  "ledgerPath": ""
 }

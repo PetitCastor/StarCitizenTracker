@@ -1,56 +1,62 @@
-using System.Diagnostics;
+using System.Text;
+using TrackingService.Orders;
 using Windows.Graphics.Imaging;
 
 namespace TrackingService.Trackers;
 
 /// <summary>
-/// Tracks refinery work-order setup: while the SETUP panel is open it scroll-stitches the
-/// materials list (rows merge by name, last-seen wins, so scrolling and toggle flips
-/// self-correct), and commits the accumulated order when the PROCESSING panel appears
-/// after CONFIRM. CANCEL (setup disappears without PROCESSING) discards.
+/// Observes a refinery work order across its three panels and merges each read into the persistent
+/// <see cref="OrderLedger"/>. While SETUP is open it scroll-stitches the materials list (rows keyed
+/// by name+quality, last-seen wins). The middle-column state header is classified every tick into a
+/// <see cref="PanelState"/> and fed to a <see cref="PanelStateMachine"/>, so PROCESSING/COMPLETED are
+/// captured without any rising-edge bookkeeping — an order already in progress or completed when the
+/// tracker starts is picked up on the first clean frame, and the idempotent ledger merge means
+/// repeated reads collapse. The COMPLETED panel's printed YIELD total is a checksum (within a
+/// rounding tolerance): a matching row-sum marks the read <c>Complete</c>, otherwise <c>Partial</c>
+/// (with a scroll nudge); a read occluded by the Confirm-Delivery modal is <c>Unknown</c> and never
+/// promoted to <c>Complete</c>.
 /// </summary>
 public sealed class RefineryTracker : ITracker
 {
-    // Regions are placeholders pending calibration from --save-frames corpus captures.
-    // CALIBRATE in 2560x1440 reference coordinates (RoiScaler.Reference*); RoiScaler maps
-    // them to the actual frame size at scan time.
-    private static readonly BitmapBounds StationHeaderRoi = new() { X = 220, Y = 250, Width = 650, Height = 60 };
-    private static readonly BitmapBounds SetupHeaderRoi = new() { X = 940, Y = 310, Width = 320, Height = 70 };
-    private static readonly BitmapBounds ProcessingHeaderRoi = new() { X = 1450, Y = 310, Width = 420, Height = 70 };
-    private static readonly BitmapBounds ProcessRoi = new() { X = 620, Y = 545, Width = 460, Height = 60 };
-    private static readonly BitmapBounds MaterialsListRoi = new() { X = 620, Y = 640, Width = 440, Height = 340 };
-    private static readonly BitmapBounds FooterRoi = new() { X = 610, Y = 980, Width = 500, Height = 140 };
-    private static readonly BitmapBounds ToggleStripRoi = new() { X = 1050, Y = 640, Width = 28, Height = 340 };
-    private const int ToggleColumnX = 1064; // CALIBRATE — reference-space sample column inside ToggleStripRoi
+    // Calibrated against the 2560x1440 corpus (Fixtures/Replay/refinery-confirm) in reference
+    // coordinates; RoiScaler maps them to the actual frame size at scan time.
+    private static readonly BitmapBounds StationHeaderRoi = new() { X = 320, Y = 190, Width = 340, Height = 55 };  // "STANTON GATEWAY"
+    private static readonly BitmapBounds PanelStateRoi = new() { X = 900, Y = 265, Width = 250, Height = 55 };     // SETUP | PROCESSING | COMPLETED
+    private static readonly BitmapBounds ProcessRoi = new() { X = 650, Y = 515, Width = 440, Height = 48 };        // "Pyrometric Chromalysis"
+    private static readonly BitmapBounds SetupListRoi = new() { X = 650, Y = 640, Width = 400, Height = 270 };     // SETUP list: NAME QUALITY QTY YIELD
+    private static readonly BitmapBounds FooterRoi = new() { X = 650, Y = 950, Width = 440, Height = 120 };        // TOTAL COST / PROCESSING TIME
+    private static readonly BitmapBounds ToggleStripRoi = new() { X = 1055, Y = 645, Width = 40, Height = 250 };   // SETUP refine toggles
+    private const int ToggleColumnX = 1073;                                                                        // sample column inside the toggle pill
+    private static readonly BitmapBounds YieldListRoi = new() { X = 650, Y = 395, Width = 470, Height = 210 };     // PROCESSING/COMPLETED: NAME QUALITY YIELD ...
+    private static readonly BitmapBounds YieldTotalRoi = new() { X = 650, Y = 805, Width = 480, Height = 48 };     // "YIELD 303 cSCU" checksum line
+    private static readonly BitmapBounds ConfirmModalRoi = new() { X = 1052, Y = 582, Width = 625, Height = 225 }; // Confirm Delivery modal
 
     private const double HeaderScale = 3.0;
     private const double ListScale = 2.5;
     private const double FooterScale = 3.0;
 
-    // Setup anchor must be missing this many consecutive ticks (~1.5 s) before we act on it —
-    // survives OCR flicker and brief UI animations.
-    private const int AnchorGoneThreshold = 3;
-
-    private enum State { Idle, Accumulating, AwaitingReset }
+    /// <summary>Yield checksum slack: per-row cSCU are rounded, so the printed total can differ from
+    /// the row-sum by up to about a cSCU per row.</summary>
+    private static int ChecksumTolerance(int rows) => Math.Max(2, rows);
 
     internal sealed class Accumulator
     {
         private int _nextOrder;
-        public readonly Dictionary<string, (int Order, MaterialRow Row)> Rows = new(StringComparer.OrdinalIgnoreCase);
+        public readonly Dictionary<string, (int Order, OrderMaterial Mat)> Rows = new(StringComparer.Ordinal);
         public string? Station, Process, Cost, Time;
 
         public bool IsEmpty => Rows.Count == 0;
 
-        public void Merge(MaterialRow row)
+        public void Merge(OrderMaterial material)
         {
-            Rows[row.Name] = Rows.TryGetValue(row.Name, out var existing)
-                ? (existing.Order, row)
-                : (_nextOrder++, row);
+            var key = OrderMatcher.MaterialKey(material);
+            Rows[key] = Rows.TryGetValue(key, out var existing)
+                ? (existing.Order, material)
+                : (_nextOrder++, material);
         }
 
-        public RefineryWorkOrder ToOrder() => new(
-            Station ?? "?", Process ?? "?", Cost ?? "?", Time ?? "?",
-            Rows.Values.OrderBy(v => v.Order).Select(v => v.Row).ToList());
+        public IReadOnlyList<OrderMaterial> Materials
+            => Rows.Values.OrderBy(v => v.Order).Select(v => v.Mat).ToList();
     }
 
     private readonly OcrPipeline _ocr;
@@ -58,26 +64,30 @@ public sealed class RefineryTracker : ITracker
     private readonly ConsoleSink _sink;
     private readonly bool _verbose;
     private readonly string? _debugDir;
+    private readonly OrderLedger _ledger;
 
-    private State _state = State.Idle;
+    private readonly PanelStateMachine _machine = new();
+    private readonly SetupDepartureDebouncer _setupDebouncer = new();
     private Accumulator _acc = new();
-    private bool? _processingWasVisible;
-    private int _setupGoneTicks;
+    private WorkOrder? _lastOrder;      // the order to advance to Collected when the panel closes
+    private bool _expectCollect;        // saw a completed/processing panel → watch for the modal even after the header is gone
     private int _tick;
 
-    public RefineryTracker(OcrPipeline ocr, Action<TrackerRecord> emit, ConsoleSink sink, bool verbose, string? debugDir)
+    public RefineryTracker(OcrPipeline ocr, Action<TrackerRecord> emit, ConsoleSink sink, bool verbose,
+        string? debugDir, OrderLedger ledger)
     {
         _ocr = ocr;
         _emit = emit;
         _sink = sink;
         _verbose = verbose;
         _debugDir = debugDir;
+        _ledger = ledger;
     }
 
     public string Name => "refinery";
 
-    // Orange filled toggle vs neutral dark gray. CALIBRATE against corpus frames,
-    // including a hovered row (hover highlight shifts the background).
+    // Refine toggle: orange/red fill when ON (R high, B low), white knob when OFF (R≈B), dark when
+    // disabled. Sampling the pill's fill column separates all three. Validated against the corpus.
     internal static bool IsRefineOn((byte B, byte G, byte R) c) => c.R > 140 && c.R > c.B * 1.8;
 
     /// <summary>Maps a reference-space ROI to this frame's pixel space.</summary>
@@ -87,80 +97,90 @@ public sealed class RefineryTracker : ITracker
     public async Task ScanAsync(SoftwareBitmap frame, CancellationToken ct)
     {
         _tick++;
-        switch (_state)
+
+        var panelText = await _ocr.ReadRegionAsync(frame, R(frame, PanelStateRoi), HeaderScale);
+        var state = RefineryParser.Classify(panelText);
+
+        // Debounced SETUP-session bookkeeping (H4): a single OCR-flicker tick must not reset the
+        // scroll-stitch accumulator or fire a premature submit with a half-stitched order. See
+        // SetupDepartureDebouncer for the confirm-N-ticks-before-acting rule. This only gates the
+        // accumulator lifecycle — panel *content* below is still read every tick from the raw
+        // classification, so a genuinely-transitioned panel is never read late.
+        var transition = _setupDebouncer.Observe(state);
+        if (transition.OpenedFresh)
         {
-            case State.Idle:
-                if (await IsAnchorVisibleAsync(frame, SetupHeaderRoi, "SETUP"))
-                {
-                    Log("setup screen opened, accumulating");
-                    _acc = new Accumulator();
-                    _processingWasVisible = null;
-                    _setupGoneTicks = 0;
-                    _state = State.Accumulating;
-                }
-                break;
+            // A fresh SETUP starts a new order — reset the stitching accumulator.
+            _acc = new Accumulator();
+            _expectCollect = false;
+        }
+        else if (transition.DepartedTo == PanelState.None)
+        {
+            // SETUP closed without ever confirming a submit — a cancelled/abandoned order. Discard
+            // the accumulator (H3) so its station/process/cost can't leak into a later, unrelated
+            // yield-panel read; the station-reuse heuristic in ObserveYieldPanelAsync only trusts
+            // _acc.Station while it belongs to the current cycle, which a fresh Accumulator restores.
+            _acc = new Accumulator();
+        }
 
-            case State.Accumulating:
-                await AccumulateTickAsync(frame, ct);
-                break;
+        // Only pay for the modal ROI read when it can matter: on a live panel, or while watching for
+        // a delivery after the completed panel's header has already gone.
+        var needModal = state != PanelState.None || _expectCollect;
+        var modalVisible = needModal && await IsModalVisibleAsync(frame);
 
-            case State.AwaitingReset:
-                if (!await IsAnchorVisibleAsync(frame, SetupHeaderRoi, "SETUP"))
-                {
-                    if (++_setupGoneTicks >= AnchorGoneThreshold)
-                    {
-                        Log("setup screen closed, idle");
-                        _state = State.Idle;
-                    }
-                }
-                else
-                {
-                    _setupGoneTicks = 0;
-                }
+        // Submit: the SETUP order leaves for PROCESSING/COMPLETED with rows accumulated, so persist
+        // the authoritative setup order exactly once, once the debouncer confirms the departure.
+        if (transition.DepartedTo is PanelState.Processing or PanelState.Completed && !_acc.IsEmpty)
+        {
+            var submit = _ledger.Observe(BuildSetupObservation());
+            _lastOrder = submit.Merged;
+            if (submit.Changed)
+                _emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(submit.Merged)));
+        }
+
+        var step = _machine.Step(new PanelObservation(state, modalVisible));
+        switch (step.Action)
+        {
+            case LedgerAction.ObserveSetup:
+                await AccumulateAsync(frame);
+                break;
+            case LedgerAction.ObserveCompleted:
+                await ObserveYieldPanelAsync(frame, state, step.Occluded, ct);
+                _expectCollect = true;
+                break;
+            case LedgerAction.MarkCollected:
+                MarkCollected();
+                _expectCollect = false;
+                break;
+            case LedgerAction.None:
                 break;
         }
+
+        if (step.Note is not null)
+            Log(step.Note);
     }
 
-    private async Task AccumulateTickAsync(SoftwareBitmap frame, CancellationToken ct)
+    /// <summary>Stitches the SETUP materials list (NAME · QUALITY · QTY · YIELD) and header/footer
+    /// into the accumulator. Provisional only — nothing is written to the ledger until submit.</summary>
+    private async Task AccumulateAsync(SoftwareBitmap frame)
     {
-        // Commit on the *rising edge* of PROCESSING: level-triggering would double-commit,
-        // and a leftover PROCESSING panel from a previous order must not commit a fresh
-        // accumulator (known limitation — manual hotkey is the escape hatch there).
-        var processingVisible = await IsAnchorVisibleAsync(frame, ProcessingHeaderRoi, "PROCESSING");
-        if (_processingWasVisible == false && processingVisible)
-        {
-            await CommitAsync(frame, TriggerKind.Auto, ct);
-            _setupGoneTicks = 0;
-            _state = State.AwaitingReset;
-            return;
-        }
-        _processingWasVisible = processingVisible;
-
-        if (!await IsAnchorVisibleAsync(frame, SetupHeaderRoi, "SETUP"))
-        {
-            if (++_setupGoneTicks >= AnchorGoneThreshold)
-            {
-                Log($"setup screen gone without confirm, discarding {_acc.Rows.Count} rows");
-                _state = State.Idle;
-            }
-            return;
-        }
-        _setupGoneTicks = 0;
-
-        var sw = Stopwatch.StartNew();
-        var list = await _ocr.ReadRegionDetailedAsync(frame, R(frame, MaterialsListRoi), ListScale);
+        var list = await _ocr.ReadRegionDetailedAsync(frame, R(frame, SetupListRoi), ListScale);
         var strip = await PixelStrip.CaptureAsync(_ocr, frame, R(frame, ToggleStripRoi));
         var toggleColumnX = RoiScaler.ToFrameX(ToggleColumnX, frame.PixelWidth);
 
-        foreach (var row in RefineryParser.ExtractRows(list))
+        foreach (var row in RefineryParser.ExtractColumnarRows(list).Rows)
         {
+            // 0 is the deliberate sentinel for "quality unreadable this tick" — OrderMatcher.SameMaterial
+            // treats a 0 quality on either side as unknown and wildcards the comparison, rather than
+            // letting a blank/misread column collapse into a false-different (or false-same) batch.
+            var quality = Num(row, 0) ?? 0;
+            var qty = Num(row, 1) ?? 0;
+            var yield = Num(row, 2) ?? 0; // "--" before a quote
             var (_, frameY) = list.ToFramePoint(0, row.CropCenterY);
             var refineOn = IsRefineOn(strip.AveragePatch(toggleColumnX, frameY));
-            _acc.Merge(new MaterialRow(row.Name, row.QtyScu, row.YieldScu, refineOn));
+            Log($"setup row {row.Name} [{string.Join(",", row.Numbers)}] refine={refineOn}");
+            _acc.Merge(new OrderMaterial(row.Name, quality, qty, yield, refineOn));
         }
 
-        // Station/process/footer don't change while the panel is open — refresh occasionally
-        // (each read re-encodes the full frame, so keep the per-tick OCR budget down).
         if (_tick % 4 == 0 || _acc.Station is null)
         {
             var stationText = await _ocr.ReadRegionAsync(frame, R(frame, StationHeaderRoi), HeaderScale);
@@ -173,52 +193,148 @@ public sealed class RefineryTracker : ITracker
             _acc.Cost = RefineryParser.ParseCost(footerText) ?? _acc.Cost;
             _acc.Time = RefineryParser.ParseTime(footerText) ?? _acc.Time;
         }
+    }
 
-        sw.Stop();
-        Log($"tick {sw.ElapsedMilliseconds} ms, {_acc.Rows.Count} rows stitched");
+    /// <summary>Reads a PROCESSING or COMPLETED yield panel (NAME · QUALITY · YIELD · …), runs the
+    /// checksum on a completed non-occluded read, and files the order as Processing or Ready.</summary>
+    private async Task ObserveYieldPanelAsync(SoftwareBitmap frame, PanelState state, bool occluded, CancellationToken ct)
+    {
+        var list = await _ocr.ReadRegionDetailedAsync(frame, R(frame, YieldListRoi), ListScale);
+        var extract = RefineryParser.ExtractColumnarRows(list);
+
+        // Completed-panel rows have no toggle column — they were refined by definition. QUALITY is
+        // the first number, YIELD the second (PROCESSING then adds TO DO / DONE, which we ignore).
+        // As in AccumulateAsync, an unreadable QUALITY becomes the 0 sentinel (unknown, wildcards in
+        // OrderMatcher.SameMaterial) rather than a fabricated literal zero that could re-split the order.
+        var materials = extract.Rows
+            .Select(r => new OrderMaterial(r.Name, Num(r, 0) ?? 0, 0, Num(r, 1) ?? 0, true))
+            .ToList();
+        if (materials.Count == 0)
+            return;
+
+        foreach (var r in extract.Rows)
+            Log($"yield row {r.Name} [{string.Join(",", r.Numbers)}]");
+
+        // Prefer the station captured during SETUP: the completed-panel header OCRs less reliably
+        // (e.g. "STANTON" -> "•TANTON"), and an inconsistent station would split the record.
+        var station = _acc.Station
+            ?? RefineryParser.ParseStation(await _ocr.ReadRegionAsync(frame, R(frame, StationHeaderRoi), HeaderScale))
+            ?? "?";
+
+        int? total = null;
+        var completeness = Completeness.Unknown;
+        var sum = materials.Sum(m => m.YieldCscu);
+
+        if (state == PanelState.Completed && !occluded)
+        {
+            var totalText = await _ocr.ReadRegionAsync(frame, R(frame, YieldTotalRoi), HeaderScale);
+            total = RefineryParser.ParseYieldTotal(totalText);
+            var clean = extract.DroppedTopEdge + extract.DroppedBottomEdge == 0
+                && !materials.Any(m => m.YieldCscu == 0);
+            completeness = clean && total is int t && Math.Abs(t - sum) <= ChecksumTolerance(materials.Count)
+                ? Completeness.Complete
+                : Completeness.Partial;
+        }
+
+        var orderState = state == PanelState.Processing ? OrderState.Processing : OrderState.Ready;
+        var source = state == PanelState.Processing ? "PROCESSING" : "COMPLETED";
+
+        var obs = new WorkOrder(
+            Id: "", Key: "", Station: station, Process: _acc.Process ?? "?", Cost: _acc.Cost ?? "?",
+            Eta: _acc.Time ?? "?", State: orderState, Completeness: completeness, Materials: materials,
+            TotalYieldCscu: total, RowsSeen: materials.Count, FirstSeen: DateTime.Now, LastSeen: DateTime.Now,
+            Sources: [source]);
+
+        var result = _ledger.Observe(obs);
+        _lastOrder = result.Merged;
+
+        if (completeness == Completeness.Partial && result.Changed)
+            _sink.WriteLine($"refinery: order at {station} partial — {materials.Count} rows, {sum}/" +
+                $"{(total?.ToString() ?? "?")} cSCU. Scroll the list to complete.");
+
+        if (result.Changed && orderState == OrderState.Ready)
+        {
+            _emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(result.Merged)));
+            await SaveDebugAsync(frame, ct);
+        }
+    }
+
+    private void MarkCollected()
+    {
+        if (_lastOrder is null)
+            return;
+
+        // Keep Id/Key so OrderLedger.Observe targets this exact record via its Id fast path, rather
+        // than re-matching fuzzily by station+materials. Blanking them (as this used to) meant that
+        // with two open records sharing the same station+materials, fuzzy tie-break could collect the
+        // wrong (older) one.
+        var result = _ledger.Observe(_lastOrder with
+        {
+            State = OrderState.Collected, LastSeen = DateTime.Now,
+        });
+        _lastOrder = result.Merged;
+
+        if (result.Changed)
+            _emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(result.Merged)));
     }
 
     public async Task OnManualTriggerAsync(SoftwareBitmap frame, CancellationToken ct)
     {
-        if (_state == State.Accumulating && !_acc.IsEmpty)
+        // Escape hatch: force the current SETUP accumulator into the ledger even if no panel
+        // transition fired (e.g. classification stuck).
+        if (!_acc.IsEmpty)
         {
-            // Escape hatch: force-commit (e.g. PROCESSING panel never had a rising edge).
-            await CommitAsync(frame, TriggerKind.Manual, ct);
-            _setupGoneTicks = 0;
-            _state = State.AwaitingReset;
+            var result = _ledger.Observe(BuildSetupObservation());
+            _lastOrder = result.Merged;
+            _emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Manual, RenderOrder(result.Merged)));
             return;
         }
 
         // Calibration aid: dump raw OCR of the regions this tracker depends on.
-        var list = await _ocr.ReadRegionAsync(frame, R(frame, MaterialsListRoi), ListScale);
+        var list = await _ocr.ReadRegionAsync(frame, R(frame, SetupListRoi), ListScale);
         var footer = await _ocr.ReadRegionAsync(frame, R(frame, FooterRoi), FooterScale);
         _emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Manual,
             $"[raw list ROI]\r\n{list}\r\n[raw footer ROI]\r\n{footer}"));
     }
 
-    private async Task CommitAsync(SoftwareBitmap frame, TriggerKind trigger, CancellationToken ct)
+    private WorkOrder BuildSetupObservation() => new(
+        Id: "", Key: "", Station: _acc.Station ?? "?", Process: _acc.Process ?? "?",
+        Cost: _acc.Cost ?? "?", Eta: _acc.Time ?? "?", State: OrderState.Pending,
+        Completeness: Completeness.Unknown, Materials: _acc.Materials, TotalYieldCscu: null,
+        RowsSeen: _acc.Rows.Count, FirstSeen: DateTime.Now, LastSeen: DateTime.Now, Sources: ["SETUP"]);
+
+    private static int? Num(ColumnarRow row, int index)
+        => index < row.Numbers.Count ? row.Numbers[index] : null;
+
+    private async Task<bool> IsModalVisibleAsync(SoftwareBitmap frame)
     {
-        if (_acc.IsEmpty)
-        {
-            Log("commit skipped: no rows accumulated");
-            return;
-        }
-
-        var order = _acc.ToOrder();
-        _emit(new TrackerRecord(DateTime.Now, Name, trigger, order.ToText()));
-
-        if (_debugDir is not null)
-        {
-            using var listCrop = await _ocr.CropAndScaleAsync(frame, R(frame, MaterialsListRoi), 1.0);
-            var pngPath = await FrameSaver.SavePngAsync(listCrop, _debugDir, "refinery_list");
-            await File.WriteAllTextAsync(Path.ChangeExtension(pngPath, ".txt"), order.ToText(), ct);
-        }
+        var text = await _ocr.ReadRegionAsync(frame, R(frame, ConfirmModalRoi), HeaderScale);
+        return text.Contains("CONFIRM", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("DELIVER", StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task<bool> IsAnchorVisibleAsync(SoftwareBitmap frame, BitmapBounds referenceRoi, string anchor)
+    private async Task SaveDebugAsync(SoftwareBitmap frame, CancellationToken ct)
     {
-        var text = await _ocr.ReadRegionAsync(frame, R(frame, referenceRoi), HeaderScale);
-        return text.Contains(anchor, StringComparison.OrdinalIgnoreCase);
+        if (_debugDir is null)
+            return;
+
+        using var crop = await _ocr.CropAndScaleAsync(frame, R(frame, YieldListRoi), 1.0);
+        var pngPath = await FrameSaver.SavePngAsync(crop, _debugDir, "refinery_completed");
+        if (_lastOrder is not null)
+            await File.WriteAllTextAsync(Path.ChangeExtension(pngPath, ".txt"), RenderOrder(_lastOrder), ct);
+    }
+
+    private static string RenderOrder(WorkOrder o)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Station: {o.Station}   [{o.State}, {o.Completeness}]");
+        sb.AppendLine($"Process: {o.Process}   Cost: {o.Cost}   ETA: {o.Eta}");
+        sb.AppendLine($"Materials ({o.Materials.Count}):");
+        foreach (var m in o.Materials)
+            sb.AppendLine($"  {m.Name,-20} q{m.Quality,-5} {m.YieldCscu / 100m,8:0.00} SCU  {(m.RefineOn ? "REFINE" : "skip")}");
+        if (o.TotalYieldCscu is int total)
+            sb.AppendLine($"  Total yield: {total / 100m:0.00} SCU");
+        return sb.ToString().TrimEnd();
     }
 
     private void Log(string message)
