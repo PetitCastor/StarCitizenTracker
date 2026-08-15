@@ -68,6 +68,29 @@ public class RoiScalerTests
     }
 
     [Fact]
+    public void ToFrame_AtReferenceResolution_ClampsRoiThatOverflowsTheFrame()
+    {
+        // A mis-typed config value used to escape unclamped through the identity shortcut, and
+        // CaptureAsync would hand it straight to a bitmap crop.
+        var overflowing = new BitmapBounds { X = 2500, Y = 1400, Width = 400, Height = 200 };
+
+        var scaled = RoiScaler.ToFrame(overflowing, RoiScaler.ReferenceWidth, RoiScaler.ReferenceHeight);
+
+        Assert.True(scaled.X + scaled.Width <= RoiScaler.ReferenceWidth);
+        Assert.True(scaled.Y + scaled.Height <= RoiScaler.ReferenceHeight);
+    }
+
+    [Theory]
+    [InlineData(0, 1440)]
+    [InlineData(2560, 0)]
+    [InlineData(-1920, 1080)]
+    public void ToFrame_NonPositiveFrameSize_Throws(int frameWidth, int frameHeight)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => RoiScaler.ToFrame(SampleRoi, frameWidth, frameHeight));
+    }
+
+    [Fact]
     public void ToFrameX_ScalesReferenceColumn()
     {
         Assert.Equal(798, RoiScaler.ToFrameX(1064, 1920));

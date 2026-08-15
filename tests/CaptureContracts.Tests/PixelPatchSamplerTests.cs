@@ -79,6 +79,38 @@ public class PixelPatchSamplerTests
     }
 
     [Fact]
+    public void AveragePatch_OnEmptyPatch_ReturnsBlackInsteadOfThrowing()
+    {
+        // Clamping into a 0-wide patch is Math.Clamp(v, 0, -1), which throws. A ROI the engine
+        // clamped away arrives as 0x0 and must take the same "nothing sampled" path as an
+        // out-of-buffer request.
+        var sampler = new PixelPatchSampler([], stride: 0, width: 0, height: 0, frameX: 100, frameY: 200);
+
+        Assert.Equal(((byte)0, (byte)0, (byte)0), sampler.AveragePatch(frameX: 100, frameY: 200));
+    }
+
+    [Fact]
+    public void Constructor_WithBufferSmallerThanGeometry_Throws()
+    {
+        Assert.Throws<ArgumentException>(
+            () => new PixelPatchSampler(new byte[8], stride: 8, width: 2, height: 2, frameX: 0, frameY: 0));
+    }
+
+    [Fact]
+    public void Constructor_WithStrideShorterThanARow_Throws()
+    {
+        Assert.Throws<ArgumentException>(
+            () => new PixelPatchSampler(new byte[32], stride: 4, width: 2, height: 2, frameX: 0, frameY: 0));
+    }
+
+    [Fact]
+    public void Constructor_WithNegativeGeometry_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new PixelPatchSampler(new byte[16], stride: 16, width: -1, height: 1, frameX: 0, frameY: 0));
+    }
+
+    [Fact]
     public void AveragePatch_UsesFrameOffsetToLocalizeCoordinates()
     {
         var bgra = BuildBgra(4, 4, (x, y) => x == 1 && y == 1 ? ((byte)1, (byte)2, (byte)3) : ((byte)0, (byte)0, (byte)0));

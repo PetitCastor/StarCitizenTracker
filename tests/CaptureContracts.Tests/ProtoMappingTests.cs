@@ -128,4 +128,129 @@ public class ProtoMappingTests
         Assert.Equal(2, sampler.Height);
         Assert.Equal(((byte)1, (byte)2, (byte)3), sampler.AveragePatch(101, 201, radius: 0));
     }
+
+    // ---- error results ----------------------------------------------------------------
+    // A failed ROI must never reach a plugin as a successful empty read: empty header text
+    // makes PanelStateMachine report "no panel", and leaving Processing for None emits
+    // MarkCollected — one transient ROI failure would close a still-running order.
+
+    private static RoiResult ErrorResult() => new()
+    {
+        RoiId = "setup_materials",
+        Error = true,
+        ErrorMessage = "ROI outside the frame",
+    };
+
+    [Fact]
+    public void ToOcrRegionResult_OnEngineError_ThrowsInsteadOfReturningEmptyText()
+    {
+        var e = Assert.Throws<RoiResultException>(() => ErrorResult().ToOcrRegionResult());
+
+        Assert.True(e.ReportedByEngine);
+        Assert.Equal("setup_materials", e.RoiId);
+        Assert.Contains("outside the frame", e.Message);
+    }
+
+    [Fact]
+    public void ToPixelSampler_OnEngineError_Throws()
+    {
+        Assert.Throws<RoiResultException>(() => ErrorResult().ToPixelSampler());
+    }
+
+    [Fact]
+    public void TryToOcrRegionResult_OnEngineError_ReportsWithoutThrowing()
+    {
+        Assert.False(ErrorResult().TryToOcrRegionResult(out var result, out var error));
+
+        Assert.Null(result);
+        Assert.Contains("outside the frame", error);
+    }
+
+    [Fact]
+    public void TryToOcrRegionResult_OnSuccess_YieldsTheResult()
+    {
+        var wire = ToWire(BuildSource(), new RoiRect(465, 480, 330, 255));
+
+        Assert.True(wire.TryToOcrRegionResult(out var result, out var error));
+
+        Assert.Null(error);
+        Assert.Equal("PRESSURIZED ICE\n3.03 SCU", result.Text);
+    }
+
+    [Fact]
+    public void ToOcrRegionResult_WithUnsetEffectiveScale_Throws()
+    {
+        // proto3 leaves effective_scale at 0 when the engine forgets it; ToFramePoint would
+        // then divide by zero and hand back int.MinValue coordinates.
+        var wire = new RoiResult
+        {
+            RoiId = "setup_materials",
+            FrameRect = new RoiRect(620, 640, 440, 340).ToProto(),
+            Text = "PRESSURIZED ICE",
+        };
+
+        var e = Assert.Throws<RoiResultException>(() => wire.ToOcrRegionResult());
+
+        Assert.False(e.ReportedByEngine);
+        Assert.Contains("effective_scale", e.Message);
+    }
+
+    // ---- pixel payload invariants -----------------------------------------------------
+    // stride/width/height/bytes are four independent wire fields. In-process the stride was
+    // derived from the buffer; on the wire a mismatch is only caught if the mapping checks.
+
+    private static RoiResult PixelResult(byte[] bytes, uint stride, uint width, uint height) => new()
+    {
+        RoiId = "refine_toggles",
+        FrameRect = new RoiRect(100, 200, width, height).ToProto(),
+        PixelsBgra = ByteString.CopyFrom(bytes),
+        PixelsStride = stride,
+        PixelsWidth = width,
+        PixelsHeight = height,
+    };
+
+    [Fact]
+    public void ToPixelSampler_WithTruncatedBuffer_ThrowsAtTheBoundary()
+    {
+        // Declares 2x2 but sends one row: indexing row 1 would run off the array inside a parser.
+        var wire = PixelResult(new byte[8], stride: 8, width: 2, height: 2);
+
+        var e = Assert.Throws<RoiResultException>(() => wire.ToPixelSampler());
+
+        Assert.False(e.ReportedByEngine);
+        Assert.Contains("pixels_bgra", e.Message);
+    }
+
+    [Fact]
+    public void ToPixelSampler_WithStrideShorterThanARow_Throws()
+    {
+        var wire = PixelResult(new byte[32], stride: 4, width: 2, height: 2);
+
+        var e = Assert.Throws<RoiResultException>(() => wire.ToPixelSampler());
+
+        Assert.Contains("pixels_stride", e.Message);
+    }
+
+    [Fact]
+    public void ToPixelSampler_WithPaddedStride_IsAccepted()
+    {
+        // Row padding is legal as long as the buffer actually carries it.
+        var wire = PixelResult(new byte[12 * 2], stride: 12, width: 2, height: 2);
+
+        var sampler = wire.ToPixelSampler();
+
+        Assert.Equal(2, sampler.Width);
+    }
+
+    [Fact]
+    public void ToPixelSampler_WithClampedAwayRoi_YieldsAnEmptySamplerNotAThrow()
+    {
+        // A ROI the engine clamped to nothing is a legal, if useless, result.
+        var wire = PixelResult([], stride: 0, width: 0, height: 0);
+
+        var sampler = wire.ToPixelSampler();
+
+        Assert.Equal(0, sampler.Width);
+        Assert.Equal(((byte)0, (byte)0, (byte)0), sampler.AveragePatch(100, 200));
+    }
 }

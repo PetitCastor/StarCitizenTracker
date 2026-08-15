@@ -29,8 +29,20 @@ public sealed record OcrRegionResult(
     public double CropWidth => RoiWidth * EffectiveScale;
     public double CropHeight => RoiHeight * EffectiveScale;
 
+    /// <summary>
+    /// Projects a crop-space point back to full-frame pixels. A non-positive scale would divide
+    /// to infinity and the unchecked cast would yield int.MinValue — a coordinate that looks
+    /// like data, not like a bug. Kept in lockstep with CaptureContracts.OcrRegionResult until
+    /// ENGINE-SPLIT TASK-8 deletes this copy.
+    /// </summary>
     public (int X, int Y) ToFramePoint(double cropX, double cropY)
-        => ((int)(RoiX + cropX / EffectiveScale), (int)(RoiY + cropY / EffectiveScale));
+    {
+        if (!(EffectiveScale > 0))
+            throw new InvalidOperationException(
+                $"EffectiveScale must be > 0 to project crop coordinates (was {EffectiveScale}).");
+
+        return ((int)(RoiX + cropX / EffectiveScale), (int)(RoiY + cropY / EffectiveScale));
+    }
 
     public IEnumerable<OcrWordInfo> AllWords()
     {

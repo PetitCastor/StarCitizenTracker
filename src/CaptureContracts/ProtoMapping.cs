@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using CaptureContracts.Proto;
 using Google.Protobuf;
 
@@ -63,8 +64,24 @@ public static class ProtoMapping
     /// identical semantics to the monolith, where ReadRegionDetailedAsync received the
     /// frame-space rect.
     /// </summary>
+    /// <exception cref="RoiResultException">
+    /// The engine flagged the ROI as failed, or effective_scale is not positive. Both would
+    /// otherwise produce a result indistinguishable from a successful read of an empty panel;
+    /// see <see cref="TryToOcrRegionResult"/> for the skip-quietly path.
+    /// </exception>
     public static OcrRegionResult ToOcrRegionResult(this RoiResult r)
     {
+        ThrowIfEngineError(r);
+
+        // effective_scale is engine output and is always > 0 on a successful result. A 0 here
+        // means the engine never set the field, and ToFramePoint would divide by it: the double
+        // division yields infinity and the unchecked cast to int yields int.MinValue, so the
+        // plugin would get plausible-looking coordinates that are catastrophically wrong.
+        if (!(r.EffectiveScale > 0))
+            throw new RoiResultException(r.RoiId,
+                $"effective_scale must be > 0 on a successful result (was {r.EffectiveScale}).",
+                reportedByEngine: false);
+
         var rect = r.FrameRect ?? new Rect();
 
         var lines = new List<OcrLineInfo>(r.Lines.Count);
@@ -89,16 +106,89 @@ public static class ProtoMapping
     /// Wire result of a ROI_MODE_PIXELS subscription to a sampler. FrameX/Y come from the
     /// frame_rect origin so callers keep addressing pixels in frame coordinates.
     /// </summary>
+    /// <exception cref="RoiResultException">
+    /// The engine flagged the ROI as failed, or the buffer does not match the declared
+    /// geometry. stride/width/height/bytes are four independent wire fields with no
+    /// cross-check of their own; a truncated buffer or a stride that counts row padding the
+    /// engine never sent would surface much later as an IndexOutOfRangeException inside a
+    /// plugin parser, so the mismatch is caught here at the boundary instead.
+    /// </exception>
     public static PixelPatchSampler ToPixelSampler(this RoiResult r)
     {
-        var rect = r.FrameRect ?? new Rect();
+        ThrowIfEngineError(r);
 
-        return new PixelPatchSampler(
-            r.PixelsBgra.ToByteArray(),
-            (int)r.PixelsStride,
-            (int)r.PixelsWidth,
-            (int)r.PixelsHeight,
-            (int)rect.X,
-            (int)rect.Y);
+        var rect = r.FrameRect ?? new Rect();
+        var bgra = r.PixelsBgra.ToByteArray();
+        var stride = (int)r.PixelsStride;
+        var width = (int)r.PixelsWidth;
+        var height = (int)r.PixelsHeight;
+
+        if (stride < 0 || width < 0 || height < 0)
+            throw new RoiResultException(r.RoiId,
+                $"pixel geometry overflows int (stride {r.PixelsStride}, {r.PixelsWidth}x{r.PixelsHeight}).",
+                reportedByEngine: false);
+
+        if (stride < width * 4L)
+            throw new RoiResultException(r.RoiId,
+                $"pixels_stride {stride} is shorter than one row of {width} BGRA pixels.",
+                reportedByEngine: false);
+
+        if (bgra.LongLength < (long)stride * height)
+            throw new RoiResultException(r.RoiId,
+                $"pixels_bgra has {bgra.LongLength} bytes, needs {(long)stride * height} for " +
+                $"{width}x{height} at stride {stride}.",
+                reportedByEngine: false);
+
+        return new PixelPatchSampler(bgra, stride, width, height, (int)rect.X, (int)rect.Y);
+    }
+
+    /// <summary>
+    /// Non-throwing <see cref="ToOcrRegionResult"/> for the common plugin shape: skip the ROIs
+    /// that failed this tick, log why, and leave the tracker's state untouched rather than
+    /// feeding it an empty read.
+    /// </summary>
+    public static bool TryToOcrRegionResult(this RoiResult r,
+        [NotNullWhen(true)] out OcrRegionResult? result,
+        [NotNullWhen(false)] out string? error)
+    {
+        try
+        {
+            result = r.ToOcrRegionResult();
+            error = null;
+            return true;
+        }
+        catch (RoiResultException e)
+        {
+            result = null;
+            error = e.Message;
+            return false;
+        }
+    }
+
+    /// <summary>Non-throwing <see cref="ToPixelSampler"/>; see <see cref="TryToOcrRegionResult"/>.</summary>
+    public static bool TryToPixelSampler(this RoiResult r,
+        [NotNullWhen(true)] out PixelPatchSampler? sampler,
+        [NotNullWhen(false)] out string? error)
+    {
+        try
+        {
+            sampler = r.ToPixelSampler();
+            error = null;
+            return true;
+        }
+        catch (RoiResultException e)
+        {
+            sampler = null;
+            error = e.Message;
+            return false;
+        }
+    }
+
+    private static void ThrowIfEngineError(RoiResult r)
+    {
+        if (r.Error)
+            throw new RoiResultException(r.RoiId,
+                r.ErrorMessage.Length > 0 ? r.ErrorMessage : "the engine reported a ROI failure.",
+                reportedByEngine: true);
     }
 }

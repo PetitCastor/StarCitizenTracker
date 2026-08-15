@@ -19,11 +19,15 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # Whole solution, not just the monolith's test project: CaptureContracts carries the wire
+      # contract (protoc codegen included, the most breakable part) and the parity tests that
+      # detect drift between the transitional duplicates. Neither is worth anything if a green
+      # CI can merge without compiling them.
       - name: Restore
-        run: dotnet restore tests/TrackingService.Tests/TrackingService.Tests.csproj
+        run: dotnet restore StarCitizenTracker.slnx
 
       - name: Build
-        run: dotnet build tests/TrackingService.Tests/TrackingService.Tests.csproj --no-restore -c Release
+        run: dotnet build StarCitizenTracker.slnx --no-restore -c Release
 
       - name: Test
-        run: dotnet test tests/TrackingService.Tests/TrackingService.Tests.csproj --no-build -c Release --verbosity normal
+        run: dotnet test StarCitizenTracker.slnx --no-build -c Release --verbosity normal

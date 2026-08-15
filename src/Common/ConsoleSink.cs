@@ -1,3 +1,7 @@
+// TRANSITIONAL DUPLICATE of src/TrackingService/Core/ConsoleSink.cs, byte-identical apart from
+// the namespace. Nothing references this copy yet — the engine and the plugins pick it up in
+// ENGINE-SPLIT TASK-2/TASK-3, and TASK-8 deletes the monolith's copy in favour of it. Until
+// then both are live and must be edited together.
 namespace Common;
 
 /// <summary>

@@ -5,7 +5,9 @@ namespace CaptureContracts.Tests;
 
 /// <summary>
 /// Parity with the monolith's RoiScalerTests: same inputs, same expected outputs, on the
-/// RoiRect port. If these ever disagree the two scalers have drifted.
+/// RoiRect port. If these ever disagree the two scalers have drifted — which CI can only
+/// catch because it builds and tests the whole solution, not just the monolith's suite.
+/// The duplication is transitional and ends at ENGINE-SPLIT TASK-8.
 /// </summary>
 public class RoiScalerTests
 {
@@ -44,6 +46,31 @@ public class RoiScalerTests
         var scaledRight = RoiScaler.ToFrame(right, 1920, 1080);
 
         Assert.Equal(scaledLeft.X + scaledLeft.Width, scaledRight.X);
+    }
+
+    [Fact]
+    public void ToFrame_AtReferenceResolution_ClampsRoiThatOverflowsTheFrame()
+    {
+        // A mis-typed config value used to escape unclamped through the identity shortcut, and
+        // the engine would hand it straight to a bitmap crop.
+        var overflowing = new RoiRect(2500, 1400, 400, 200);
+
+        var scaled = RoiScaler.ToFrame(overflowing, RoiScaler.ReferenceWidth, RoiScaler.ReferenceHeight);
+
+        Assert.True(scaled.X + scaled.Width <= RoiScaler.ReferenceWidth);
+        Assert.True(scaled.Y + scaled.Height <= RoiScaler.ReferenceHeight);
+    }
+
+    [Theory]
+    [InlineData(0, 1440)]
+    [InlineData(2560, 0)]
+    [InlineData(-1920, 1080)]
+    public void ToFrame_NonPositiveFrameSize_Throws(int frameWidth, int frameHeight)
+    {
+        // Clamping a rect into a zero-sized frame means Math.Clamp(v, 1, 0), which throws an
+        // ArgumentException from deep inside the scaler; reject the frame size instead.
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => RoiScaler.ToFrame(SampleRoi, frameWidth, frameHeight));
     }
 
     [Fact]

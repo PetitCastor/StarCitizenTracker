@@ -15,10 +15,17 @@ public static class RoiScaler
     public const int ReferenceHeight = 1440;
 
     /// <summary>Scales a reference-space ROI to frame space, clamped inside the frame.</summary>
+    /// <remarks>
+    /// There is deliberately no identity shortcut for the reference resolution: it would hand
+    /// back a mis-configured out-of-bounds ROI unclamped, and CaptureAsync would take that
+    /// straight to a bitmap crop. At 2560x1440 the scale factors are exactly 1.0 and every
+    /// Math.Round below is exact, so the general path returns in-bounds ROIs unchanged anyway.
+    /// Kept in lockstep with CaptureContracts.RoiScaler until ENGINE-SPLIT TASK-8 deletes this copy.
+    /// </remarks>
     public static BitmapBounds ToFrame(BitmapBounds referenceRoi, int frameWidth, int frameHeight)
     {
-        if (frameWidth == ReferenceWidth && frameHeight == ReferenceHeight)
-            return referenceRoi;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(frameWidth);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(frameHeight);
 
         var sx = (double)frameWidth / ReferenceWidth;
         var sy = (double)frameHeight / ReferenceHeight;
