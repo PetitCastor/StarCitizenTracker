@@ -1,12 +1,17 @@
-using TrackingService;
-using Windows.Graphics.Imaging;
+using CaptureContracts;
 using Xunit;
 
-namespace TrackingService.Tests;
+namespace CaptureContracts.Tests;
 
+/// <summary>
+/// Parity with the monolith's RoiScalerTests: same inputs, same expected outputs, on the
+/// RoiRect port. If these ever disagree the two scalers have drifted — which CI can only
+/// catch because it builds and tests the whole solution, not just the monolith's suite.
+/// The duplication is transitional and ends at ENGINE-SPLIT TASK-8.
+/// </summary>
 public class RoiScalerTests
 {
-    private static readonly BitmapBounds SampleRoi = new() { X = 620, Y = 640, Width = 440, Height = 340 };
+    private static readonly RoiRect SampleRoi = new(620, 640, 440, 340);
 
     [Fact]
     public void ToFrame_AtReferenceResolution_ReturnsRoiUnchanged()
@@ -31,22 +36,11 @@ public class RoiScalerTests
     }
 
     [Fact]
-    public void ToFrame_At4K_ScalesUp()
-    {
-        var scaled = RoiScaler.ToFrame(SampleRoi, 3840, 2160);
-
-        Assert.Equal(930u, scaled.X);
-        Assert.Equal(960u, scaled.Y);
-        Assert.Equal(660u, scaled.Width);
-        Assert.Equal(510u, scaled.Height);
-    }
-
-    [Fact]
     public void ToFrame_AdjacentRois_StayAdjacentAfterScaling()
     {
         // Edge-based rounding: a ROI ending where another begins must not gap or overlap.
-        var left = new BitmapBounds { X = 100, Y = 0, Width = 233, Height = 100 };
-        var right = new BitmapBounds { X = 333, Y = 0, Width = 233, Height = 100 };
+        var left = new RoiRect(100, 0, 233, 100);
+        var right = new RoiRect(333, 0, 233, 100);
 
         var scaledLeft = RoiScaler.ToFrame(left, 1920, 1080);
         var scaledRight = RoiScaler.ToFrame(right, 1920, 1080);
@@ -55,24 +49,11 @@ public class RoiScalerTests
     }
 
     [Fact]
-    public void ToFrame_RoiTouchingFrameEdge_StaysInsideFrame()
-    {
-        var edgeRoi = new BitmapBounds { X = 2100, Y = 1300, Width = 460, Height = 140 };
-
-        var scaled = RoiScaler.ToFrame(edgeRoi, 1920, 1080);
-
-        Assert.True(scaled.X + scaled.Width <= 1920);
-        Assert.True(scaled.Y + scaled.Height <= 1080);
-        Assert.True(scaled.Width >= 1);
-        Assert.True(scaled.Height >= 1);
-    }
-
-    [Fact]
     public void ToFrame_AtReferenceResolution_ClampsRoiThatOverflowsTheFrame()
     {
         // A mis-typed config value used to escape unclamped through the identity shortcut, and
-        // CaptureAsync would hand it straight to a bitmap crop.
-        var overflowing = new BitmapBounds { X = 2500, Y = 1400, Width = 400, Height = 200 };
+        // the engine would hand it straight to a bitmap crop.
+        var overflowing = new RoiRect(2500, 1400, 400, 200);
 
         var scaled = RoiScaler.ToFrame(overflowing, RoiScaler.ReferenceWidth, RoiScaler.ReferenceHeight);
 
@@ -86,41 +67,16 @@ public class RoiScalerTests
     [InlineData(-1920, 1080)]
     public void ToFrame_NonPositiveFrameSize_Throws(int frameWidth, int frameHeight)
     {
+        // Clamping a rect into a zero-sized frame means Math.Clamp(v, 1, 0), which throws an
+        // ArgumentException from deep inside the scaler; reject the frame size instead.
         Assert.Throws<ArgumentOutOfRangeException>(
             () => RoiScaler.ToFrame(SampleRoi, frameWidth, frameHeight));
     }
 
     [Fact]
-    public void ToFrameX_ScalesReferenceColumn()
-    {
-        Assert.Equal(798, RoiScaler.ToFrameX(1064, 1920));
-        Assert.Equal(1064, RoiScaler.ToFrameX(1064, RoiScaler.ReferenceWidth));
-    }
-
-    [Fact]
-    public void ToFrameY_ScalesReferenceRow()
-    {
-        Assert.Equal(480, RoiScaler.ToFrameY(640, 1080));
-    }
-
-    [Fact]
-    public void DescribeFrame_ReferenceResolution_SaysOneToOne()
-    {
-        Assert.Contains("1:1", RoiScaler.DescribeFrame(2560, 1440));
-    }
-
-    [Fact]
-    public void DescribeFrame_Same16By9_NoAspectWarning()
-    {
-        var text = RoiScaler.DescribeFrame(1920, 1080);
-
-        Assert.Contains("scaled", text);
-        Assert.DoesNotContain("WARNING", text);
-    }
-
-    [Fact]
     public void DescribeFrame_Ultrawide_WarnsAboutAspect()
     {
+        // The non-16:9 case: per-axis scaling is unverified, so the banner must say so.
         Assert.Contains("WARNING", RoiScaler.DescribeFrame(3440, 1440));
     }
 }

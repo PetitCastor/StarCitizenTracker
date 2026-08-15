@@ -1,6 +1,9 @@
-using Windows.Graphics.Imaging;
-
-namespace TrackingService;
+// TRANSITIONAL DUPLICATE of src/TrackingService/Core/RoiScaler.cs (that copy is the same
+// algorithm over WinRT BitmapBounds). The monolith stays untouched until ENGINE-SPLIT TASK-8,
+// which points TrackingService at this project and deletes the original; until then both copies
+// are live and must be edited together. tests/CaptureContracts.Tests/RoiScalerTests.cs mirrors
+// the monolith's assertions to catch drift, and CI runs both suites.
+namespace CaptureContracts;
 
 /// <summary>
 /// Maps ROIs declared in reference-resolution coordinates (2560x1440, the resolution all
@@ -17,12 +20,11 @@ public static class RoiScaler
     /// <summary>Scales a reference-space ROI to frame space, clamped inside the frame.</summary>
     /// <remarks>
     /// There is deliberately no identity shortcut for the reference resolution: it would hand
-    /// back a mis-configured out-of-bounds ROI unclamped, and CaptureAsync would take that
+    /// back a mis-configured out-of-bounds ROI unclamped, and the engine would take that
     /// straight to a bitmap crop. At 2560x1440 the scale factors are exactly 1.0 and every
     /// Math.Round below is exact, so the general path returns in-bounds ROIs unchanged anyway.
-    /// Kept in lockstep with CaptureContracts.RoiScaler until ENGINE-SPLIT TASK-8 deletes this copy.
     /// </remarks>
-    public static BitmapBounds ToFrame(BitmapBounds referenceRoi, int frameWidth, int frameHeight)
+    public static RoiRect ToFrame(RoiRect referenceRoi, int frameWidth, int frameHeight)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(frameWidth);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(frameHeight);
@@ -36,7 +38,7 @@ public static class RoiScaler
         var right = (uint)Math.Clamp(Math.Round((referenceRoi.X + referenceRoi.Width) * sx), x + 1, frameWidth);
         var bottom = (uint)Math.Clamp(Math.Round((referenceRoi.Y + referenceRoi.Height) * sy), y + 1, frameHeight);
 
-        return new BitmapBounds { X = x, Y = y, Width = right - x, Height = bottom - y };
+        return new RoiRect(x, y, right - x, bottom - y);
     }
 
     /// <summary>Scales a reference-space X coordinate (e.g. a pixel sample column) to frame space.</summary>

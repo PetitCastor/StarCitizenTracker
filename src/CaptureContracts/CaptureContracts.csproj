@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Deliberately plain net10.0 (no windows TFM): plugins reference this and must stay
+       WinRT-free so they never take a dependency on the capture stack. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.35.1" />
+    <PackageReference Include="Grpc.Core.Api" Version="2.83.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.83.0" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!-- "Both" generates the client (CaptureEngineServiceClient) for the SDK/plugins and the
+       server base (CaptureEngineServiceBase) for the engine, from one frozen contract. -->
+  <ItemGroup>
+    <Protobuf Include="..\..\protos\capture.proto" GrpcServices="Both" Link="protos\capture.proto" />
+  </ItemGroup>
+
+</Project>

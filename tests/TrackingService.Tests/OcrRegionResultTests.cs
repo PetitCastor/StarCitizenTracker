@@ -37,6 +37,18 @@ public class OcrRegionResultTests
         Assert.Equal(110, x);
     }
 
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.5)]
+    public void ToFramePoint_NonPositiveScale_Throws(double scale)
+    {
+        // Dividing by 0 yields infinity, and the unchecked cast turns that into int.MinValue —
+        // a coordinate that looks like data rather than a bug.
+        var region = new OcrRegionResult("", [], scale, RoiX: 100, RoiY: 50, RoiWidth: 200, RoiHeight: 100);
+
+        Assert.Throws<InvalidOperationException>(() => region.ToFramePoint(20, 10));
+    }
+
     [Fact]
     public void CropWidthAndHeight_ScaleTheRoi()
     {

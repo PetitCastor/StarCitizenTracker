@@ -1,8 +1,11 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/CaptureContracts/CaptureContracts.csproj" />
+    <Project Path="src/Common/Common.csproj" />
     <Project Path="src/TrackingService/TrackingService.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/CaptureContracts.Tests/CaptureContracts.Tests.csproj" />
     <Project Path="tests/TrackingService.Tests/TrackingService.Tests.csproj" />
   </Folder>
 </Solution>

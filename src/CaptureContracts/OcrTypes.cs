@@ -1,4 +1,8 @@
-namespace TrackingService;
+// TRANSITIONAL DUPLICATE of src/TrackingService/Core/OcrRegionResult.cs. The monolith stays
+// untouched until ENGINE-SPLIT TASK-8, which points TrackingService at this project and deletes
+// the original; until then both copies are live and must be edited together. CI builds and
+// tests both so the parity tests in tests/CaptureContracts.Tests catch drift.
+namespace CaptureContracts;
 
 /// <summary>Plain rectangle in upscaled-crop pixel space (no WinRT types so parsers stay testable).</summary>
 public readonly record struct RectF(double X, double Y, double Width, double Height)
@@ -30,11 +34,15 @@ public sealed record OcrRegionResult(
     public double CropHeight => RoiHeight * EffectiveScale;
 
     /// <summary>
-    /// Projects a crop-space point back to full-frame pixels. A non-positive scale would divide
-    /// to infinity and the unchecked cast would yield int.MinValue — a coordinate that looks
-    /// like data, not like a bug. Kept in lockstep with CaptureContracts.OcrRegionResult until
-    /// ENGINE-SPLIT TASK-8 deletes this copy.
+    /// Projects a crop-space point back to full-frame pixels.
     /// </summary>
+    /// <remarks>
+    /// The scale guard is not paranoia across the wire boundary: a proto3 double defaults to 0
+    /// when the engine omits effective_scale, and dividing by it yields infinity, which an
+    /// unchecked cast turns into int.MinValue — a coordinate that looks like data, not like a
+    /// bug. ProtoMapping rejects such results, so reaching this throw means a locally built
+    /// result is malformed.
+    /// </remarks>
     public (int X, int Y) ToFramePoint(double cropX, double cropY)
     {
         if (!(EffectiveScale > 0))

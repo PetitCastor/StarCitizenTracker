@@ -1,0 +1,173 @@
+syntax = "proto3";
+
+package capture;
+
+option csharp_namespace = "CaptureContracts.Proto";
+
+// Game-agnostic screen-capture + OCR engine. Plugins subscribe ROI sets and receive one
+// TickResult per scanned frame; everything a plugin needs for one decision arrives in one
+// tick from one frame (per-tick atomicity).
+service CaptureEngineService {
+  // Bidi: client sends Hello, then RoiSetUpdate (full replacement) whenever its set changes.
+  // Server pushes one TickResult per scan tick. Server-side stream completion means replay
+  // finished or engine shutdown.
+  rpc Track (stream TrackRequest) returns (stream TrackResponse);
+
+  // One-shot OCR of a ROI against the most recently scanned frame (debug/calibration aid).
+  rpc ReadRoi (ReadRoiRequest) returns (ReadRoiResponse);
+
+  // Save the most recently scanned frame (or a crop) as a PNG in the engine's output dir.
+  rpc DumpFrame (DumpFrameRequest) returns (DumpFrameResponse);
+
+  rpc GetStatus (StatusRequest) returns (StatusResponse);
+}
+
+// ---------- geometry ----------
+
+// Integer rectangle. The coordinate SPACE is not part of this type — it is declared at every
+// field that uses it, because both spaces travel the wire: REFERENCE space (2560x1440, what
+// clients declare) and FRAME space (actual capture pixels, what the engine reports back).
+// Never run RoiScaler.ToFrame on a rect a field documents as frame space: double-scaling
+// produces coordinates that are wrong but plausible, and they flow straight into
+// OcrRegionResult.RoiX/Y and PixelPatchSampler.FrameX/Y.
+message Rect {
+  uint32 x = 1;
+  uint32 y = 2;
+  uint32 width = 3;
+  uint32 height = 4;
+}
+
+// Rectangle in upscaled-crop space; mirrors CaptureContracts.RectF.
+message RectF {
+  double x = 1;
+  double y = 2;
+  double width = 3;
+  double height = 4;
+}
+
+// ---------- subscription ----------
+
+enum RoiMode {
+  ROI_MODE_TEXT = 0;      // plain OCR text
+  ROI_MODE_DETAILED = 1;  // OCR with per-word geometry
+  ROI_MODE_PIXELS = 2;    // raw BGRA bytes of the region at 1:1, no OCR
+}
+
+message RoiSpec {
+  string id = 1;   // client-chosen, unique within the client's set
+  Rect rect = 2;   // REFERENCE space
+
+  // OCR upscale factor; ignored for ROI_MODE_PIXELS. proto3 cannot tell "unset" from 0.0, so
+  // 0 (or any value <= 0) means "engine default", i.e. 1.0 — see CaptureContracts.WireLimits.
+  // NormalizeOcrScale. The engine normalises before capturing and reports what it applied in
+  // RoiResult.effective_scale, which is therefore always > 0 on a successful result.
+  double scale = 3;
+
+  RoiMode mode = 4;
+
+  // ROI_MODE_PIXELS only: rect area * 4 must not exceed WireLimits.MaxPixelBytes. Larger ROIs
+  // are rejected with a per-ROI error rather than silently blowing the message size cap.
+}
+
+message Hello {
+  string client_name = 1;  // e.g. "refinery"
+}
+
+// FULL replacement of the client's ROI set (idempotent; empty list = heartbeat-only client).
+message RoiSetUpdate {
+  repeated RoiSpec rois = 1;
+}
+
+message TrackRequest {
+  oneof msg {
+    Hello hello = 1;
+    RoiSetUpdate rois = 2;
+  }
+}
+
+// ---------- results ----------
+
+message OcrWord {
+  string text = 1;
+  RectF crop_rect = 2;  // upscaled-crop space
+}
+
+message OcrLine {
+  string text = 1;
+  repeated OcrWord words = 2;
+}
+
+message RoiResult {
+  string roi_id = 1;
+  Rect frame_rect = 2;         // FRAME space: the rect actually read (after scaling + clamping)
+
+  // Scale actually applied (the requested scale, normalised and then clamped to the OCR max
+  // dimension). Always > 0 when error is false; 0 only on an error result.
+  double effective_scale = 3;
+
+  // TEXT / DETAILED
+  string text = 4;
+  repeated OcrLine lines = 5;  // DETAILED only, empty otherwise
+
+  // PIXELS. Invariants when error is false: stride >= width * 4 and
+  // len(pixels_bgra) >= stride * height. Total size is capped at WireLimits.MaxPixelBytes —
+  // gRPC's default 4 MiB receive limit applies to the WHOLE TickResult, so one oversized ROI
+  // would sink the entire tick and break per-tick atomicity. Oversized ROIs get error instead.
+  bytes pixels_bgra = 6;
+  uint32 pixels_stride = 7;
+  uint32 pixels_width = 8;
+  uint32 pixels_height = 9;
+
+  // Per-ROI failure (e.g. ROI outside the frame); other ROIs in the tick are unaffected.
+  // Clients MUST check this first: on an error result every payload field above is unset, and
+  // empty text is NOT the same as a successfully read empty panel. CaptureContracts.
+  // ProtoMapping throws rather than hand back a degraded result.
+  bool error = 10;
+  string error_message = 11;
+}
+
+message TickResult {
+  int64 timestamp_ms = 1;  // unix epoch milliseconds
+  uint64 frame_seq = 2;    // monotonically increasing per scanned frame
+  uint32 frame_width = 3;
+  uint32 frame_height = 4;
+  bool manual = 5;         // hotkey pressed since the previous tick
+  repeated RoiResult results = 6;
+}
+
+message TrackResponse {
+  oneof msg {
+    TickResult tick = 1;
+  }
+}
+
+// ---------- unary ----------
+
+message ReadRoiRequest { RoiSpec roi = 1; }
+message ReadRoiResponse {
+  bool no_frame = 1;  // engine has not scanned any frame yet
+  RoiResult result = 2;
+  uint32 frame_width = 3;
+  uint32 frame_height = 4;
+}
+
+message DumpFrameRequest {
+  bool full_frame = 1;  // true: whole frame; false: crop to roi
+  Rect roi = 2;         // REFERENCE space; used when full_frame is false
+  string prefix = 3;    // filename prefix, e.g. "refinery_completed"
+}
+message DumpFrameResponse {
+  bool no_frame = 1;
+  string path = 2;  // absolute path of the saved PNG
+}
+
+message StatusRequest {}
+message StatusResponse {
+  string engine_version = 1;
+  uint32 frame_width = 2;  // 0 until the first frame
+  uint32 frame_height = 3;
+  uint64 frame_seq = 4;
+  bool replay_mode = 5;
+  string ocr_language = 6;
+  repeated string connected_clients = 7;
+}
