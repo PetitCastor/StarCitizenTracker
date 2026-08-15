@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using TrackingService.Orders;
 using Xunit;
 
@@ -167,6 +168,39 @@ public sealed class OrderLedgerTests : IDisposable
         Assert.Equal(2, ledger.All.Count);
         Assert.Single(ledger.All, w => w.State == OrderState.Collected);
         Assert.Single(ledger.All, w => w.State == OrderState.Processing);
+    }
+
+    [Fact]
+    public void Observe_ExplicitId_TargetsExactRecord_NotFuzzyTieBreak()
+    {
+        // Two open records that share station + materials can coexist in the ledger's backing file
+        // (e.g. two genuinely separate runs of an identical recipe, both still open) even though a
+        // *fresh* fuzzy Observe() of that exact mix would normally merge into one — so this seeds them
+        // directly into the file, bypassing fuzzy matching, the way a reload would encounter them.
+        var seed = NewLedger();
+        var older = seed.Observe(Obs("S", [("TITANIUM", 100, 313)], when: new DateTime(2026, 1, 1))).Merged;
+
+        var olderLine = File.ReadAllLines(_path).Single();
+        var duplicate = JsonNode.Parse(olderLine)!.AsObject();
+        duplicate["id"] = Guid.NewGuid().ToString("N");
+        duplicate["firstSeen"] = new DateTime(2026, 6, 1).ToString("o");
+        duplicate["lastSeen"] = new DateTime(2026, 6, 1).ToString("o");
+        File.AppendAllText(_path, duplicate.ToJsonString() + Environment.NewLine);
+
+        var ledger = NewLedger(); // reload: two distinct open records, identical station + materials
+        Assert.Equal(2, ledger.All.Count);
+        var newer = ledger.All.Single(w => w.Id != older.Id);
+        Assert.NotEqual(older.Id, newer.Id);
+
+        // A fuzzy match (no Id) would tie-break to the earliest (older) FirstSeen — see
+        // TryMatch_IdenticalCandidates_EarliestFirstSeenWins. An observation naming the newer record's
+        // Id must collect THAT one instead, regardless of tie-break ordering.
+        var result = ledger.Observe(newer with { State = OrderState.Collected, LastSeen = DateTime.Now });
+
+        Assert.Equal(newer.Id, result.Merged.Id);
+        Assert.Equal(OrderState.Collected, result.Merged.State);
+        var untouched = ledger.All.Single(w => w.Id == older.Id);
+        Assert.Equal(OrderState.Pending, untouched.State); // the older record must be untouched
     }
 
     // ---- Durability matrix (F1-F5) ----

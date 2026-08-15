@@ -183,4 +183,49 @@ public class RefineryParserYieldRowsTests
         Assert.Equal("TORITE", row.Name);
         Assert.Equal(new int?[] { 262, 50 }, row.Numbers);
     }
+
+    // ---- H6: OCR-garbage 12-digit tokens must never throw an unchecked (int) overflow ----
+
+    [Fact]
+    public void ExtractColumnarRows_TwelveDigitGarbageColumn_BecomesNull_DoesNotThrow()
+    {
+        var words = new[]
+        {
+            Word("Torite", 0, 100), Word("262", 150, 100), Word("999999999999", 220, 100),
+        };
+
+        var ex = Record.Exception(() => RefineryParser.ExtractColumnarRows(Region(words)));
+        Assert.Null(ex);
+
+        var row = Assert.Single(RefineryParser.ExtractColumnarRows(Region(words)).Rows);
+        Assert.Equal(262, row.Numbers[0]);
+        Assert.Null(row.Numbers[1]); // garbage column dropped, not a wrapped/overflowed int
+    }
+
+    [Fact]
+    public void ExtractYieldRows_TwelveDigitGarbageYield_RowDropped_DoesNotThrow()
+    {
+        var words = new[] { Word("Titanium", 0, 100), Word("999999999999", 70, 100) };
+
+        var ex = Record.Exception(() => RefineryParser.ExtractYieldRows(Region(words)));
+
+        Assert.Null(ex);
+        Assert.Empty(RefineryParser.ExtractYieldRows(Region(words)).Rows);
+    }
+
+    [Fact]
+    public void ParseYieldTotal_TwelveDigitGarbage_ReturnsNull_DoesNotThrow_LabelledForm()
+    {
+        var ex = Record.Exception(() => RefineryParser.ParseYieldTotal("YIELD 999999999999"));
+        Assert.Null(ex);
+        Assert.Null(RefineryParser.ParseYieldTotal("YIELD 999999999999"));
+    }
+
+    [Fact]
+    public void ParseYieldTotal_TwelveDigitGarbage_ReturnsNull_DoesNotThrow_BareFallbackForm()
+    {
+        var ex = Record.Exception(() => RefineryParser.ParseYieldTotal("999999999999"));
+        Assert.Null(ex);
+        Assert.Null(RefineryParser.ParseYieldTotal("999999999999"));
+    }
 }

@@ -103,26 +103,38 @@ public sealed class OrderLedger
     }
 
     /// <summary>
-    /// Merges one observation into the ledger. Matches against OPEN records only (Collected records
-    /// are closed, so a repeat of an already-collected mix spawns a fresh order — H1); no match ⇒ a
-    /// new record with a freshly assigned id. Appends a line only when something meaningful changed
-    /// (H2): timestamp/row-count churn rides along in memory but never writes on its own.
+    /// Merges one observation into the ledger. An observation that names an existing record's
+    /// <see cref="WorkOrder.Id"/> targets that record directly, bypassing fuzzy matching entirely —
+    /// this is the fast path callers use when they already hold the exact record (e.g.
+    /// <c>RefineryTracker.MarkCollected</c>), so a tie-break between two open records with identical
+    /// station+materials can never steal the merge. Otherwise, matches against OPEN records only
+    /// (Collected records are closed, so a repeat of an already-collected mix spawns a fresh order —
+    /// H1); no match ⇒ a new record with a freshly assigned id. Appends a line only when something
+    /// meaningful changed (H2): timestamp/row-count churn rides along in memory but never writes on
+    /// its own.
     /// </summary>
     public ObserveResult Observe(WorkOrder observation)
     {
-        var openRecords = _records.Values.Where(w => !OrderMatcher.IsClosed(w)).ToList();
-
         WorkOrder merged;
         WorkOrder? previous;
-        if (OrderMatcher.TryMatch(observation, openRecords, out var best, out _) && best is not null)
+        if (!string.IsNullOrEmpty(observation.Id) && _records.TryGetValue(observation.Id, out var exact))
         {
-            previous = best;
-            merged = Merge(best, observation);
+            previous = exact;
+            merged = Merge(exact, observation);
         }
         else
         {
-            previous = null;
-            merged = NewRecord(observation);
+            var openRecords = _records.Values.Where(w => !OrderMatcher.IsClosed(w)).ToList();
+            if (OrderMatcher.TryMatch(observation, openRecords, out var best, out _) && best is not null)
+            {
+                previous = best;
+                merged = Merge(best, observation);
+            }
+            else
+            {
+                previous = null;
+                merged = NewRecord(observation);
+            }
         }
 
         var changed = previous is null || IsMeaningfulChange(previous, merged);

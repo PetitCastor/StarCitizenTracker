@@ -23,23 +23,50 @@ public static class OrderMatcher
     /// <summary>Minimum shared materials for two partial reads of the same order to be matched by overlap.</summary>
     public const int MinOverlapMaterials = 2;
 
+    /// <summary>
+    /// Relative quality tolerance for two nonzero quality reads to count as "the same" (±2% of the
+    /// larger value). Quality is a 3-digit OCR-derived number, so a single misread digit is typically
+    /// a few percent off (714 → 715, or a digit swap like 714 → 774 which this tolerance must still
+    /// reject) — 2% is loose enough to absorb that single-digit noise but tight enough that two
+    /// genuinely different quality batches at the same station (714 vs 262) never collapse.
+    /// </summary>
+    public const double QualityToleranceFraction = 0.02;
+
     /// <summary>Per-material identity token: base name (ore-suffix stripped) plus the quality value.</summary>
     public static string MaterialKey(OrderMaterial m) => $"{RefineryParser.BaseName(m.Name)}#{m.Quality}";
 
     /// <summary>
-    /// Whether two material rows are the same physical batch. Quality must be equal (it is stable
-    /// across every panel), and one name's token set must contain the other's: the refinery renames a
-    /// raw input to its refined product by adding a descriptor word — "ICE (RAW)" → "PRESSURIZED ICE" —
-    /// never by changing the core noun, so {ICE} ⊆ {PRESSURIZED, ICE} still resolves to one batch.
-    /// Quality equality is what keeps a same-station ICE#714 from collapsing into an unrelated GOLD#714.
+    /// Whether two material rows are the same physical batch. Quality must be equal-within-tolerance
+    /// (it is stable across every panel, so it's a strong identity signal), and one name's token set
+    /// must contain the other's: the refinery renames a raw input to its refined product by adding a
+    /// descriptor word — "ICE (RAW)" → "PRESSURIZED ICE" — never by changing the core noun, so
+    /// {ICE} ⊆ {PRESSURIZED, ICE} still resolves to one batch.
     /// </summary>
+    /// <remarks>
+    /// Quality is OCR-derived, not ground truth: <c>0</c> is the deliberate sentinel for "unreadable
+    /// this tick" (see <c>RefineryTracker.ObserveYieldPanelAsync</c>/<c>AccumulateAsync</c>, which use
+    /// <c>Num(r,0) ?? 0</c>). Treating an exact-equality quality check as gospel means a single
+    /// misread digit (or a fully-blank read) would wrongly re-split one physical order into two — the
+    /// exact bug class this fix closes. So: quality <c>0</c> on EITHER side is "unknown," a wildcard
+    /// that matches any quality; two nonzero qualities match within
+    /// <see cref="QualityToleranceFraction"/> (relative to the larger of the two) rather than exactly,
+    /// which absorbs a single OCR digit slip (714 vs 715) while still rejecting a clearly different
+    /// batch (714 vs 262, or a digit-swap like 714 vs 774).
+    /// </remarks>
     public static bool SameMaterial(OrderMaterial a, OrderMaterial b)
     {
-        if (a.Quality != b.Quality)
+        if (a.Quality != 0 && b.Quality != 0 && !QualityWithinTolerance(a.Quality, b.Quality))
             return false;
         var ta = NameTokens(a.Name);
         var tb = NameTokens(b.Name);
         return ta.Count > 0 && tb.Count > 0 && (ta.IsSubsetOf(tb) || tb.IsSubsetOf(ta));
+    }
+
+    private static bool QualityWithinTolerance(int a, int b)
+    {
+        var diff = Math.Abs(a - b);
+        var largest = Math.Max(Math.Abs(a), Math.Abs(b));
+        return diff <= largest * QualityToleranceFraction;
     }
 
     private static HashSet<string> NameTokens(string name) => RefineryParser

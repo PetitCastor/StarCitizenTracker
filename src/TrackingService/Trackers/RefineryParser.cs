@@ -218,7 +218,7 @@ public static partial class RefineryParser
                     continue;
                 }
                 inNumbers = true;
-                numbers.Add(TryParseCscu(token, out var v) ? (int)v : null);
+                numbers.Add(TryParseCscu(token, out var v) ? ClampCscu(v) : null);
             }
 
             var name = NormalizeName(string.Join(' ', nameParts));
@@ -267,6 +267,21 @@ public static partial class RefineryParser
 
         return decimal.TryParse(sb.ToString(), NumberStyles.None, CultureInfo.InvariantCulture, out value);
     }
+
+    /// <summary>Upper bound of a sane cSCU reading — generously above anything a real refinery order
+    /// could ever show, so this only ever rejects OCR garbage, never a genuine value.</summary>
+    private const decimal MaxSaneCscu = 10_000_000m;
+
+    /// <summary>
+    /// Narrows an OCR-parsed <see cref="TryParseCscu"/> decimal to <c>int</c>, or <c>null</c> if it's
+    /// outside a sane cSCU range. The numeric-token regexes admit up to 12 digits (to tolerate stray
+    /// OCR noise glued onto a real number), so an unchecked <c>(int)</c> cast on a fully-garbage
+    /// 12-digit token (~1e12) throws <see cref="OverflowException"/> — silently killing the tracker in
+    /// live mode (caught per-tick by TrackerHost, but the tracker then stops updating) and aborting
+    /// replay outright. Garbage in, unparsed out: treat it exactly like any other unparseable token.
+    /// </summary>
+    public static int? ClampCscu(decimal value)
+        => value >= 0 && value <= MaxSaneCscu ? (int)value : null;
 
     /// <summary>First non-empty line of the station-header ROI, verbatim.</summary>
     public static string? ParseStation(string headerText)
@@ -331,28 +346,28 @@ public static partial class RefineryParser
             if (!match.Success)
                 continue;
 
-            if (!TryParseCscu(match.Groups["yield"].Value, out var yieldCscu))
+            if (!TryParseCscu(match.Groups["yield"].Value, out var yieldCscu) || ClampCscu(yieldCscu) is not int yield)
                 continue;
 
             var name = NormalizeName(match.Groups["name"].Value);
             var centerY = cluster.Average(w => w.CropRect.CenterY);
-            rows.Add(new ParsedRowCscu(name, 0, (int)yieldCscu, centerY));
+            rows.Add(new ParsedRowCscu(name, 0, yield, centerY));
         }
 
         return new ExtractResult(rows, droppedTop, droppedBottom);
     }
 
-    /// <summary>Parses the COMPLETED-panel <c>YIELD</c> total, in cSCU. Null when absent/occluded.</summary>
+    /// <summary>Parses the COMPLETED-panel <c>YIELD</c> total, in cSCU. Null when absent/occluded/garbage.</summary>
     public static int? ParseYieldTotal(string text)
     {
         var m = YieldTotalPattern().Match(text);
-        if (m.Success && TryParseCscu(m.Groups["v"].Value, out var labelled))
-            return (int)labelled;
+        if (m.Success && TryParseCscu(m.Groups["v"].Value, out var labelled) && ClampCscu(labelled) is int total)
+            return total;
 
         // Fallback: the ROI is the total line alone, so the first genuinely numeric token is the total.
         foreach (var token in text.Split([' ', '\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries))
-            if (TryParseCscu(token, out var v))
-                return (int)v;
+            if (TryParseCscu(token, out var v) && ClampCscu(v) is int t)
+                return t;
 
         return null;
     }

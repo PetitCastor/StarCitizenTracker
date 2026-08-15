@@ -124,4 +124,75 @@ public class RefineryTrackerPanelStateTests
 
         Assert.Equal(LedgerAction.None, m.Step(Gone).Action); // no repeat
     }
+
+    // ---- Cancel vs delivery (the modal latch must not survive a dismissed modal) ----
+
+    [Fact]
+    public void Cancel_CompletedModalCancelledThenGone_NoCollect_G2NoteInstead()
+    {
+        // COMPLETED, modal appears, user hits CANCEL (modal gone, panel still COMPLETED), then the
+        // panel closes. This must NEVER report MarkCollected — the order was never delivered.
+        var m = new PanelStateMachine();
+        m.Step(Completed);
+        m.Step(CompletedModal);
+        var afterCancel = m.Step(Completed); // modal dismissed, panel still showing COMPLETED
+
+        var r = m.Step(Gone);
+
+        Assert.Equal(LedgerAction.ObserveCompleted, afterCancel.Action);
+        Assert.False(afterCancel.Occluded);
+        Assert.Equal(LedgerAction.None, r.Action);
+        Assert.NotNull(r.Note); // G2 residual, not a fabricated collect
+    }
+
+    [Fact]
+    public void Delivery_CompletedModalThenGone_NoInterveningCompletedTick_StillMarksCollected()
+    {
+        // Sanity re-check of the legit path alongside the cancel test above: modal visible right up
+        // to the panel closing (no intervening modal-less COMPLETED tick) still collects.
+        var m = new PanelStateMachine();
+        m.Step(Completed);
+        m.Step(CompletedModal);
+        m.Step(CompletedModal); // modal can linger several ticks — still fine
+
+        var r = m.Step(Gone);
+
+        Assert.Equal(LedgerAction.MarkCollected, r.Action);
+    }
+
+    [Fact]
+    public void AmbiguousCase_ModalClearsOneTickBeforePanelCloses_TreatedAsCancel_ByDesign()
+    {
+        // Same four-tick shape as the cancel test: COMPLETED, COMPLETED+modal, COMPLETED (modal
+        // already gone), then None. OCR alone cannot tell "the delivery closed and this modal-less
+        // COMPLETED tick was a same-frame race" apart from "the user cancelled and the panel is just
+        // sitting there" — the documented, intentional decision (see PanelStateMachine remarks) is to
+        // treat any modal-less COMPLETED tick after the modal was seen as a reset. A real delivery
+        // must keep the modal visible through to the tick the panel closes.
+        var m = new PanelStateMachine();
+        m.Step(Completed);
+        m.Step(CompletedModal);
+        m.Step(Completed); // modal already gone this tick, panel still open
+
+        var r = m.Step(Gone); // panel closes on the very next tick
+
+        Assert.Equal(LedgerAction.None, r.Action);
+        Assert.NotNull(r.Note);
+    }
+
+    [Fact]
+    public void Cancel_ThenRealModalAgain_StillCollectsOnSubsequentDelivery()
+    {
+        // After a cancel resets the latch, the panel can still legitimately deliver later if the
+        // modal is shown (and stays shown through to close) again.
+        var m = new PanelStateMachine();
+        m.Step(Completed);
+        m.Step(CompletedModal);
+        m.Step(Completed); // cancel: latch cleared
+
+        m.Step(CompletedModal); // user re-opens confirm and this time delivers
+        var r = m.Step(Gone);
+
+        Assert.Equal(LedgerAction.MarkCollected, r.Action);
+    }
 }

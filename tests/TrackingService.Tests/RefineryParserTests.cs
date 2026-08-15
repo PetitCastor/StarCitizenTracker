@@ -188,4 +188,32 @@ public class RefineryParserTests
     [Fact]
     public void ParseTime_NoMatch_ReturnsNull()
         => Assert.Null(RefineryParser.ParseTime("no time here"));
+
+    // ---- ClampCscu (H6: unchecked (int) casts on OCR-garbage overflow) ----
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("5000")]
+    [InlineData("10000000")] // exactly at the sane upper bound
+    public void ClampCscu_InRange_ReturnsValue(string token)
+    {
+        Assert.True(RefineryParser.TryParseCscu(token, out var v));
+        Assert.Equal((int)v, RefineryParser.ClampCscu(v));
+    }
+
+    [Fact]
+    public void ClampCscu_TwelveDigitGarbageToken_ReturnsNull_DoesNotThrow()
+    {
+        // The row/total regexes admit up to 12 digits to tolerate OCR noise glued onto a real number.
+        // A fully-garbage 12-digit read (~1e12) is ~500x int.MaxValue — an unchecked (int) cast throws
+        // OverflowException here; ClampCscu must reject it as unparsed instead.
+        Assert.True(RefineryParser.TryParseCscu("999999999999", out var v));
+        var ex = Record.Exception(() => RefineryParser.ClampCscu(v));
+        Assert.Null(ex);
+        Assert.Null(RefineryParser.ClampCscu(v));
+    }
+
+    [Fact]
+    public void ClampCscu_JustOverSaneBound_ReturnsNull()
+        => Assert.Null(RefineryParser.ClampCscu(10_000_001m));
 }

@@ -43,11 +43,24 @@ public readonly record struct StepResult(LedgerAction Action, bool Occluded, str
 /// Delivery is recognized as COMPLETED → Confirm modal → panel gone. COMPLETED then gone WITHOUT an
 /// intervening modal (G2) is a documented residual: the record is left Ready and a note is emitted —
 /// never a fabricated Collected.
+///
+/// CANCEL vs DELIVERY semantics (the modal latch is not permanent): pressing CANCEL on the
+/// Confirm-Delivery modal dismisses the modal but leaves the COMPLETED panel showing — the order was
+/// never actually delivered. If <c>_modalSeen</c> stayed latched from that dismissed modal, the panel
+/// eventually closing (Completed → None) would still fire a false <see cref="LedgerAction.MarkCollected"/>.
+/// So: any tick that shows the panel still COMPLETED *without* the modal, after the modal was seen,
+/// clears the latch — we can't tell a cancel apart from "the modal happened to clear one tick before
+/// the panel closed" at the OCR level, so we deliberately treat that ambiguity as a cancel. The
+/// documented, intentional consequence: a real delivery is only recognized when the modal is still
+/// visible on the tick immediately preceding (or the same tick as) the panel going None. A delivery
+/// whose modal-clear and panel-close are split apart by an intervening "still COMPLETED, no modal"
+/// tick degrades to the G2 residual (record left Ready, note emitted) instead of Collected.
 /// </remarks>
 internal sealed class PanelStateMachine
 {
     private bool _completedSeen; // saw a COMPLETED (or materials-bearing) panel in the current cycle
-    private bool _modalSeen;     // saw the Confirm-Delivery modal while completed
+    private bool _modalSeen;     // saw the Confirm-Delivery modal since the completed panel appeared,
+                                  // and it hasn't since been contradicted by a modal-less COMPLETED tick
 
     public StepResult Step(PanelObservation observed)
     {
@@ -71,11 +84,20 @@ internal sealed class PanelStateMachine
 
             case PanelState.Completed:
                 _completedSeen = true;
-                // Register the modal on the same tick the completed panel first appears (the
-                // top-of-method check can't, since _completedSeen was still false then) — so a
-                // cold start landing straight on COMPLETED+modal still recognizes the delivery.
                 if (observed.ModalVisible)
+                {
+                    // Register the modal on the same tick the completed panel first appears (the
+                    // top-of-method check can't, since _completedSeen was still false then) — so a
+                    // cold start landing straight on COMPLETED+modal still recognizes the delivery.
                     _modalSeen = true;
+                }
+                else if (_modalSeen)
+                {
+                    // The panel is still (or again) showing COMPLETED with no modal, after the modal
+                    // had been seen — a CANCEL, per the documented semantics above. Clear the latch so
+                    // the panel later going None is treated as G2, not a fabricated delivery.
+                    _modalSeen = false;
+                }
                 return new StepResult(LedgerAction.ObserveCompleted, observed.ModalVisible, Note: null);
 
             case PanelState.None:

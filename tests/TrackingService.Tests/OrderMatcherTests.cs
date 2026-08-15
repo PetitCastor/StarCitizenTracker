@@ -111,4 +111,36 @@ public class OrderMatcherTests
         var empty = Wo("S", []);
         Assert.False(OrderMatcher.TryMatch(empty, [existing], out _, out _));
     }
+
+    // ---- SameMaterial quality tolerance (H5: quality is OCR-derived, not exact) ----
+
+    private static OrderMaterial Mat(string name, int quality) => new(name, quality, 0, 0, false);
+
+    [Fact]
+    public void SameMaterial_OneDigitOff_MatchesWithinTolerance()
+        => Assert.True(OrderMatcher.SameMaterial(Mat("GOLD", 714), Mat("GOLD", 715)));
+
+    [Fact]
+    public void SameMaterial_DigitSwap_ExceedsTolerance_DoesNotMatch()
+        // 714 -> 774: a single-digit OCR confusion, but the delta (60) is well outside a tight
+        // tolerance — must NOT match, or two genuinely different batches would collapse into one.
+        => Assert.False(OrderMatcher.SameMaterial(Mat("GOLD", 714), Mat("GOLD", 774)));
+
+    [Fact]
+    public void SameMaterial_ZeroQualityOnEitherSide_IsWildcard_Matches()
+    {
+        Assert.True(OrderMatcher.SameMaterial(Mat("GOLD", 0), Mat("GOLD", 714)));
+        Assert.True(OrderMatcher.SameMaterial(Mat("GOLD", 714), Mat("GOLD", 0)));
+        Assert.True(OrderMatcher.SameMaterial(Mat("GOLD", 0), Mat("GOLD", 0)));
+    }
+
+    [Fact]
+    public void SameMaterial_ClearlyDifferentQuality_GOLD714VsGOLD262_DoesNotMatch()
+        // Regression guard for the original bug class: a same-station same-name material at a very
+        // different quality must never collapse into one batch.
+        => Assert.False(OrderMatcher.SameMaterial(Mat("GOLD", 714), Mat("GOLD", 262)));
+
+    [Fact]
+    public void SameMaterial_DifferentNameSameQuality_DoesNotMatch()
+        => Assert.False(OrderMatcher.SameMaterial(Mat("GOLD", 714), Mat("TITANIUM", 714)));
 }

@@ -67,9 +67,9 @@ public sealed class RefineryTracker : ITracker
     private readonly OrderLedger _ledger;
 
     private readonly PanelStateMachine _machine = new();
+    private readonly SetupDepartureDebouncer _setupDebouncer = new();
     private Accumulator _acc = new();
     private WorkOrder? _lastOrder;      // the order to advance to Collected when the panel closes
-    private PanelState _lastState = PanelState.None;
     private bool _expectCollect;        // saw a completed/processing panel → watch for the modal even after the header is gone
     private int _tick;
 
@@ -101,11 +101,25 @@ public sealed class RefineryTracker : ITracker
         var panelText = await _ocr.ReadRegionAsync(frame, R(frame, PanelStateRoi), HeaderScale);
         var state = RefineryParser.Classify(panelText);
 
-        // A fresh SETUP starts a new order — reset the stitching accumulator on its rising edge.
-        if (state == PanelState.Setup && _lastState != PanelState.Setup)
+        // Debounced SETUP-session bookkeeping (H4): a single OCR-flicker tick must not reset the
+        // scroll-stitch accumulator or fire a premature submit with a half-stitched order. See
+        // SetupDepartureDebouncer for the confirm-N-ticks-before-acting rule. This only gates the
+        // accumulator lifecycle — panel *content* below is still read every tick from the raw
+        // classification, so a genuinely-transitioned panel is never read late.
+        var transition = _setupDebouncer.Observe(state);
+        if (transition.OpenedFresh)
         {
+            // A fresh SETUP starts a new order — reset the stitching accumulator.
             _acc = new Accumulator();
             _expectCollect = false;
+        }
+        else if (transition.DepartedTo == PanelState.None)
+        {
+            // SETUP closed without ever confirming a submit — a cancelled/abandoned order. Discard
+            // the accumulator (H3) so its station/process/cost can't leak into a later, unrelated
+            // yield-panel read; the station-reuse heuristic in ObserveYieldPanelAsync only trusts
+            // _acc.Station while it belongs to the current cycle, which a fresh Accumulator restores.
+            _acc = new Accumulator();
         }
 
         // Only pay for the modal ROI read when it can matter: on a live panel, or while watching for
@@ -114,11 +128,8 @@ public sealed class RefineryTracker : ITracker
         var modalVisible = needModal && await IsModalVisibleAsync(frame);
 
         // Submit: the SETUP order leaves for PROCESSING/COMPLETED with rows accumulated, so persist
-        // the authoritative setup order exactly once. A CANCEL (SETUP -> gone, never PROCESSING)
-        // never reaches here, so a discarded setup writes nothing to the ledger.
-        if (_lastState == PanelState.Setup
-            && (state == PanelState.Processing || state == PanelState.Completed)
-            && !_acc.IsEmpty)
+        // the authoritative setup order exactly once, once the debouncer confirms the departure.
+        if (transition.DepartedTo is PanelState.Processing or PanelState.Completed && !_acc.IsEmpty)
         {
             var submit = _ledger.Observe(BuildSetupObservation());
             _lastOrder = submit.Merged;
@@ -146,8 +157,6 @@ public sealed class RefineryTracker : ITracker
 
         if (step.Note is not null)
             Log(step.Note);
-
-        _lastState = state;
     }
 
     /// <summary>Stitches the SETUP materials list (NAME · QUALITY · QTY · YIELD) and header/footer
@@ -160,6 +169,9 @@ public sealed class RefineryTracker : ITracker
 
         foreach (var row in RefineryParser.ExtractColumnarRows(list).Rows)
         {
+            // 0 is the deliberate sentinel for "quality unreadable this tick" — OrderMatcher.SameMaterial
+            // treats a 0 quality on either side as unknown and wildcards the comparison, rather than
+            // letting a blank/misread column collapse into a false-different (or false-same) batch.
             var quality = Num(row, 0) ?? 0;
             var qty = Num(row, 1) ?? 0;
             var yield = Num(row, 2) ?? 0; // "--" before a quote
@@ -192,6 +204,8 @@ public sealed class RefineryTracker : ITracker
 
         // Completed-panel rows have no toggle column — they were refined by definition. QUALITY is
         // the first number, YIELD the second (PROCESSING then adds TO DO / DONE, which we ignore).
+        // As in AccumulateAsync, an unreadable QUALITY becomes the 0 sentinel (unknown, wildcards in
+        // OrderMatcher.SameMaterial) rather than a fabricated literal zero that could re-split the order.
         var materials = extract.Rows
             .Select(r => new OrderMaterial(r.Name, Num(r, 0) ?? 0, 0, Num(r, 1) ?? 0, true))
             .ToList();
@@ -250,9 +264,13 @@ public sealed class RefineryTracker : ITracker
         if (_lastOrder is null)
             return;
 
+        // Keep Id/Key so OrderLedger.Observe targets this exact record via its Id fast path, rather
+        // than re-matching fuzzily by station+materials. Blanking them (as this used to) meant that
+        // with two open records sharing the same station+materials, fuzzy tie-break could collect the
+        // wrong (older) one.
         var result = _ledger.Observe(_lastOrder with
         {
-            Id = "", Key = "", State = OrderState.Collected, LastSeen = DateTime.Now,
+            State = OrderState.Collected, LastSeen = DateTime.Now,
         });
         _lastOrder = result.Merged;
 
