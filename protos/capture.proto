@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+package capture;
+
+option csharp_namespace = "CaptureContracts.Proto";
+
+// Game-agnostic screen-capture + OCR engine. Plugins subscribe ROI sets and receive one
+// TickResult per scanned frame; everything a plugin needs for one decision arrives in one
+// tick from one frame (per-tick atomicity).
+service CaptureEngineService {
+  // Bidi: client sends Hello, then RoiSetUpdate (full replacement) whenever its set changes.
+  // Server pushes one TickResult per scan tick. Server-side stream completion means replay
+  // finished or engine shutdown.
+  rpc Track (stream TrackRequest) returns (stream TrackResponse);
+
+  // One-shot OCR of a ROI against the most recently scanned frame (debug/calibration aid).
+  rpc ReadRoi (ReadRoiRequest) returns (ReadRoiResponse);
+
+  // Save the most recently scanned frame (or a crop) as a PNG in the engine's output dir.
+  rpc DumpFrame (DumpFrameRequest) returns (DumpFrameResponse);
+
+  rpc GetStatus (StatusRequest) returns (StatusResponse);
+}
+
+// ---------- geometry ----------
+
+// Rectangle in REFERENCE space (2560x1440). The engine scales it to frame space.
+message Rect {
+  uint32 x = 1;
+  uint32 y = 2;
+  uint32 width = 3;
+  uint32 height = 4;
+}
+
+// Rectangle in upscaled-crop space; mirrors CaptureContracts.RectF.
+message RectF {
+  double x = 1;
+  double y = 2;
+  double width = 3;
+  double height = 4;
+}
+
+// ---------- subscription ----------
+
+enum RoiMode {
+  ROI_MODE_TEXT = 0;      // plain OCR text
+  ROI_MODE_DETAILED = 1;  // OCR with per-word geometry
+  ROI_MODE_PIXELS = 2;    // raw BGRA bytes of the region at 1:1, no OCR
+}
+
+message RoiSpec {
+  string id = 1;      // client-chosen, unique within the client's set
+  Rect rect = 2;      // reference space
+  double scale = 3;   // OCR upscale factor; ignored for ROI_MODE_PIXELS
+  RoiMode mode = 4;
+}
+
+message Hello {
+  string client_name = 1;  // e.g. "refinery"
+}
+
+// FULL replacement of the client's ROI set (idempotent; empty list = heartbeat-only client).
+message RoiSetUpdate {
+  repeated RoiSpec rois = 1;
+}
+
+message TrackRequest {
+  oneof msg {
+    Hello hello = 1;
+    RoiSetUpdate rois = 2;
+  }
+}
+
+// ---------- results ----------
+
+message OcrWord {
+  string text = 1;
+  RectF crop_rect = 2;  // upscaled-crop space
+}
+
+message OcrLine {
+  string text = 1;
+  repeated OcrWord words = 2;
+}
+
+message RoiResult {
+  string roi_id = 1;
+  Rect frame_rect = 2;         // FRAME-space rect actually read (after scaling + clamping)
+  double effective_scale = 3;  // scale actually applied (clamped to the OCR max dimension)
+
+  // TEXT / DETAILED
+  string text = 4;
+  repeated OcrLine lines = 5;  // DETAILED only, empty otherwise
+
+  // PIXELS
+  bytes pixels_bgra = 6;
+  uint32 pixels_stride = 7;
+  uint32 pixels_width = 8;
+  uint32 pixels_height = 9;
+
+  // Per-ROI failure (e.g. ROI outside the frame); other ROIs in the tick are unaffected.
+  bool error = 10;
+  string error_message = 11;
+}
+
+message TickResult {
+  int64 timestamp_ms = 1;  // unix epoch milliseconds
+  uint64 frame_seq = 2;    // monotonically increasing per scanned frame
+  uint32 frame_width = 3;
+  uint32 frame_height = 4;
+  bool manual = 5;         // hotkey pressed since the previous tick
+  repeated RoiResult results = 6;
+}
+
+message TrackResponse {
+  oneof msg {
+    TickResult tick = 1;
+  }
+}
+
+// ---------- unary ----------
+
+message ReadRoiRequest { RoiSpec roi = 1; }
+message ReadRoiResponse {
+  bool no_frame = 1;  // engine has not scanned any frame yet
+  RoiResult result = 2;
+  uint32 frame_width = 3;
+  uint32 frame_height = 4;
+}
+
+message DumpFrameRequest {
+  bool full_frame = 1;  // true: whole frame; false: crop to roi
+  Rect roi = 2;         // reference space; used when full_frame is false
+  string prefix = 3;    // filename prefix, e.g. "refinery_completed"
+}
+message DumpFrameResponse {
+  bool no_frame = 1;
+  string path = 2;  // absolute path of the saved PNG
+}
+
+message StatusRequest {}
+message StatusResponse {
+  string engine_version = 1;
+  uint32 frame_width = 2;  // 0 until the first frame
+  uint32 frame_height = 3;
+  uint64 frame_seq = 4;
+  bool replay_mode = 5;
+  string ocr_language = 6;
+  repeated string connected_clients = 7;
+}
