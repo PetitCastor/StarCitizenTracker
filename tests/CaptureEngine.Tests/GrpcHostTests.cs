@@ -1,8 +1,9 @@
 using System.IO.Pipes;
 using System.Security.Principal;
 using CaptureContracts.Proto;
-using CaptureEngine;
 using CaptureEngine.Grpc;
+using Common;
+using Grpc.Core;
 using Grpc.Net.Client;
 using Microsoft.AspNetCore.Builder;
 using Xunit;
@@ -17,13 +18,16 @@ namespace CaptureEngine.Tests;
 /// </summary>
 public class GrpcHostTests
 {
+    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>Generous: the round-trip test OCRs the whole fixture corpus over the pipe.</summary>
+    private static readonly TimeSpan TrackTimeout = TimeSpan.FromMinutes(2);
+
     /// <summary>
     /// Same ConnectCallback shape the SDK will use in TASK-4: gRPC has no pipe transport of
     /// its own, so the channel dials "localhost" over an HTTP handler whose connections are
     /// actually named-pipe streams.
     /// </summary>
-    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(5);
-
     private static GrpcChannel ConnectTo(string pipeName, CancellationToken ct)
     {
         var handler = new SocketsHttpHandler
@@ -50,15 +54,26 @@ public class GrpcHostTests
         return GrpcChannel.ForAddress("http://localhost", new GrpcChannelOptions { HttpHandler = handler });
     }
 
+    // Unique per run: a leftover pipe from a crashed run would otherwise be answered by the
+    // wrong process and the test would assert against a stranger.
+    private static string NewPipeName() => $"sc-test-{Guid.NewGuid():N}";
+
     [Fact]
     public async Task GetStatus_OverNamedPipe_ReturnsEngineStatus()
     {
-        // Unique per run: a leftover pipe from a crashed run would otherwise be answered by
-        // the wrong process and the test would assert against a stranger.
-        var pipeName = $"sc-test-{Guid.NewGuid():N}";
+        var pipeName = NewPipeName();
         var status = new EngineStatus("en-US", replayMode: false);
+        var registry = new SubscriptionRegistry(status);
+        var config = new EngineConfig();
 
-        var app = GrpcHost.BuildGrpcHost(pipeName, status);
+        // The scan loop is built but never run: this test is about the transport, and a stopped
+        // engine is exactly the state in which "no frames yet" must still answer correctly.
+        using var sink = new ConsoleSink();
+        using var source = new ReplayFrameSource(EngineTestFixtures.ReplayDir);
+        var ocr = new OcrPipeline();
+        using var scanLoop = new ScanLoop(source, ocr, registry, status, sink, config, verbose: false);
+
+        var app = GrpcHost.BuildGrpcHost(pipeName, status, registry, scanLoop, ocr, config);
         await app.StartAsync();
 
         try
@@ -77,7 +92,7 @@ public class GrpcHostTests
             Assert.Equal("en-US", response.OcrLanguage);
             Assert.False(response.ReplayMode);
 
-            // No scan loop in TASK-2, so the engine has seen no frames yet.
+            // The loop never ran, so the engine has seen no frames.
             Assert.Equal(0u, response.FrameWidth);
             Assert.Equal(0u, response.FrameHeight);
             Assert.Equal(0ul, response.FrameSeq);
@@ -86,6 +101,111 @@ public class GrpcHostTests
         {
             await app.StopAsync();
             await app.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// The whole engine as a plugin will meet it: subscribe over Track, receive every tick of a
+    /// replay corpus, then use the two unary calls against the frame the loop retained.
+    /// Needs a real Windows OCR language pack.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task Track_OverNamedPipe_StreamsCorpusThenServesUnaryReads()
+    {
+        using var cts = new CancellationTokenSource(TrackTimeout);
+        using var sink = new ConsoleSink();
+
+        var outputDir = Path.Combine(Path.GetTempPath(), $"sc-engine-dump-{Guid.NewGuid():N}");
+        var config = new EngineConfig { OutputDir = outputDir };
+        var source = new ReplayFrameSource(EngineTestFixtures.ReplayDir);
+        var pipeName = NewPipeName();
+
+        await using var engine = EngineHost.Create(pipeName, config, new OcrPipeline(), source, sink, verbose: false);
+        await engine.StartAsync(cts.Token);
+
+        // Started before anyone connects: the loop must hold the corpus until a client has
+        // actually subscribed, or the frames are consumed into the void.
+        var scan = engine.RunScanAsync(cts.Token);
+
+        try
+        {
+            using var channel = ConnectTo(pipeName, cts.Token);
+            var client = new CaptureEngineService.CaptureEngineServiceClient(channel);
+
+            using var call = client.Track(cancellationToken: cts.Token);
+            await call.RequestStream.WriteAsync(new TrackRequest { Hello = new Hello { ClientName = "smoke" } });
+            await call.RequestStream.WriteAsync(new TrackRequest
+            {
+                Rois = new RoiSetUpdate
+                {
+                    Rois = { EngineTestFixtures.PanelStateRoi(), EngineTestFixtures.ToggleStripRoi() },
+                },
+            });
+
+            // Nothing more to send: half-closing is how a subscribe-once plugin says so.
+            await call.RequestStream.CompleteAsync();
+
+            var ticks = new List<TickResult>();
+            await foreach (var response in call.ResponseStream.ReadAllAsync(cts.Token))
+                ticks.Add(response.Tick);
+
+            await scan;
+
+            Assert.NotEmpty(ticks);
+            Assert.Equal(source.FrameCount, ticks.Count);
+
+            for (var i = 0; i < ticks.Count; i++)
+            {
+                var tick = ticks[i];
+                Assert.Equal((ulong)(i + 1), tick.FrameSeq);
+                Assert.Equal(["panel", "toggle"], tick.Results.Select(r => r.RoiId));
+
+                var text = tick.Results[0];
+                Assert.False(text.Error, text.ErrorMessage);
+                Assert.True(text.EffectiveScale > 0);
+
+                var pixels = tick.Results[1];
+                Assert.False(pixels.Error, pixels.ErrorMessage);
+                Assert.True(pixels.PixelsStride >= pixels.PixelsWidth * 4);
+                Assert.True(pixels.PixelsBgra.Length >= pixels.PixelsWidth * pixels.PixelsHeight * 4);
+            }
+
+            // The loop retains its last frame, so the calibration RPCs still answer after the
+            // corpus is finished.
+            var read = await client.ReadRoiAsync(
+                new ReadRoiRequest { Roi = EngineTestFixtures.PanelStateRoi("probe") },
+                cancellationToken: cts.Token);
+
+            Assert.False(read.NoFrame);
+            Assert.Equal("probe", read.Result.RoiId);
+            Assert.False(read.Result.Error, read.Result.ErrorMessage);
+            Assert.True(read.FrameWidth > 0 && read.FrameHeight > 0);
+
+            var dump = await client.DumpFrameAsync(
+                new DumpFrameRequest { FullFrame = true, Prefix = "smoke" },
+                cancellationToken: cts.Token);
+
+            Assert.False(dump.NoFrame);
+            Assert.True(File.Exists(dump.Path));
+            Assert.Equal(outputDir, Path.GetDirectoryName(dump.Path));
+            Assert.StartsWith("smoke_", Path.GetFileName(dump.Path));
+
+            // The crop path used to reimplement RoiScaler.ToFrame directly and skip the off-frame
+            // guard ReadOneAsync enforces, so a bad crop rect silently saved a meaningless 1-pixel
+            // sliver instead of failing — exactly the "wrong but plausible" outcome the guard exists
+            // to prevent. It must reject the same way DumpFrame(full_frame) never has to.
+            var ex = await Assert.ThrowsAsync<RpcException>(() => client.DumpFrameAsync(
+                new DumpFrameRequest { FullFrame = false, Roi = EngineTestFixtures.OffFrameRoi().Rect, Prefix = "bad-crop" },
+                cancellationToken: cts.Token).ResponseAsync);
+            Assert.Equal(StatusCode.Unknown, ex.StatusCode);
+        }
+        finally
+        {
+            cts.Cancel();
+            try { await scan; } catch (OperationCanceledException) { }
+            if (Directory.Exists(outputDir))
+                Directory.Delete(outputDir, recursive: true);
         }
     }
 }
