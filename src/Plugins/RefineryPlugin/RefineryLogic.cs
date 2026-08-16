@@ -116,6 +116,13 @@ public sealed class RefineryLogic
     private Accumulator _acc = new();
     private WorkOrder? _lastOrder;      // the order to advance to Collected when the panel closes
     private bool _expectCollect;        // saw a completed/processing panel → watch for the modal even after the header is gone
+    private bool _observedThisCycle;    // the current completed/processing cycle actually produced a yield read
+
+    // ROI ids already reported as unreadable, cleared per id as soon as it reads again. A ROI that
+    // fails for a structural reason — a toggle strip that scales past the wire's pixel budget on a
+    // very large frame, say — fails on every tick, and a 2 Hz repeat would bury the console; silence
+    // would be worse, since the symptom downstream is orders quietly filed with "?" fields.
+    private readonly HashSet<string> _reportedFailures = new(StringComparer.Ordinal);
 
     public RefineryLogic(Action<TrackerRecord> emit, ConsoleSink sink, bool verbose,
         Func<RoiRect?, string, Task<string?>>? dumpFrame, OrderLedger ledger)
@@ -138,7 +145,22 @@ public sealed class RefineryLogic
         if (tick.Manual)
             OnManualTrigger(tick);
 
-        var panelText = tick.Text("panel");
+        // The monolith read the state header and the modal before it touched any state at all, so
+        // an OCR failure on either aborted the whole tick (TrackerHost caught it) and nothing moved.
+        // Here a failure arrives as a per-ROI flag and the ROI still reads as empty text — which is
+        // indistinguishable from a closed panel and from a dismissed modal, and the state machine
+        // acts on both readings: an errored panel after a CANCEL looks like the panel closing and
+        // fabricates a Collected order, and an errored modal looks like the confirm being dismissed
+        // and throws away a real delivery. So the abort is reconstructed here. Skipping costs one
+        // tick; the next frame is 500 ms away and every reader is idempotent.
+        // Both are evaluated, never short-circuited: RoiFailed also clears a ROI's reported-once
+        // latch when it reads cleanly again, and a panel failure must not hide the modal's recovery.
+        var panelFailed = RoiFailed(tick, Rois.Panel.Id);
+        var modalFailed = RoiFailed(tick, Rois.Modal.Id);
+        if (panelFailed || modalFailed)
+            return;
+
+        var panelText = tick.Text(Rois.Panel.Id);
         var state = RefineryParser.Classify(panelText);
 
         // Debounced SETUP-session bookkeeping (H4): a single OCR-flicker tick must not reset the
@@ -149,9 +171,11 @@ public sealed class RefineryLogic
         var transition = _setupDebouncer.Observe(state);
         if (transition.OpenedFresh)
         {
-            // A fresh SETUP starts a new order — reset the stitching accumulator.
+            // A fresh SETUP starts a new order — reset the stitching accumulator. _lastOrder belongs
+            // to the order that just ended, so the new cycle starts with nothing to collect.
             _acc = new Accumulator();
             _expectCollect = false;
+            _observedThisCycle = false;
         }
         else if (transition.DepartedTo == PanelState.None)
         {
@@ -166,7 +190,7 @@ public sealed class RefineryLogic
         // *counts*: only on a live panel, or while watching for a delivery after the completed
         // panel's header has already gone.
         var needModal = state != PanelState.None || _expectCollect;
-        var modalVisible = needModal && IsModalVisible(tick.Text("modal"));
+        var modalVisible = needModal && IsModalVisible(tick.Text(Rois.Modal.Id));
 
         // Submit: the SETUP order leaves for PROCESSING/COMPLETED with rows accumulated, so persist
         // the authoritative setup order exactly once, once the debouncer confirms the departure.
@@ -191,6 +215,7 @@ public sealed class RefineryLogic
             case LedgerAction.MarkCollected:
                 MarkCollected();
                 _expectCollect = false;
+                _observedThisCycle = false; // the cycle is closed; the next one has its own order
                 break;
             case LedgerAction.None:
                 break;
@@ -206,12 +231,16 @@ public sealed class RefineryLogic
     {
         // A ROI the engine failed to read is skipped for this tick rather than treated as an empty
         // list: the next tick re-reads it, and a blank stitch would drop rows already accumulated.
-        var list = tick.Ocr("setupList");
-        if (list is null)
+        // A strip that never arrived would sample as black and file every row as "not refined",
+        // which is a wrong reading rather than a missing one.
+        var listFailed = RoiFailed(tick, Rois.SetupList.Id);
+        var stripFailed = RoiFailed(tick, Rois.Toggles.Id);
+        if (listFailed || stripFailed)
             return;
 
-        var strip = tick.Pixels("toggles");
-        if (strip is null)
+        var list = tick.Ocr(Rois.SetupList.Id);
+        var strip = tick.Pixels(Rois.Toggles.Id);
+        if (list is null || strip is null)
             return;
 
         var toggleColumnX = RoiScaler.ToFrameX(Rois.ToggleColumnX, tick.FrameWidth);
@@ -232,9 +261,9 @@ public sealed class RefineryLogic
 
         // Every tick now: the header/footer text is already on the tick, so the monolith's
         // every-4th-tick cadence would only be skipping work that has already been paid for.
-        var stationText = tick.Text("station");
-        var processText = tick.Text("process");
-        var footerText = tick.Text("footer");
+        var stationText = tick.Text(Rois.Station.Id);
+        var processText = tick.Text(Rois.Process.Id);
+        var footerText = tick.Text(Rois.Footer.Id);
 
         // Last-good-wins: one bad OCR tick must not blank a field already captured.
         _acc.Station = RefineryParser.ParseStation(stationText) ?? _acc.Station;
@@ -247,7 +276,10 @@ public sealed class RefineryLogic
     /// checksum on a completed non-occluded read, and files the order as Processing or Ready.</summary>
     private async Task ObserveYieldPanelAsync(TickData tick, PanelState state, bool occluded, CancellationToken ct)
     {
-        var list = tick.Ocr("yieldList");
+        if (RoiFailed(tick, Rois.YieldList.Id))
+            return;
+
+        var list = tick.Ocr(Rois.YieldList.Id);
         if (list is null)
             return;
 
@@ -269,7 +301,7 @@ public sealed class RefineryLogic
         // Prefer the station captured during SETUP: the completed-panel header OCRs less reliably
         // (e.g. "STANTON" -> "•TANTON"), and an inconsistent station would split the record.
         var station = _acc.Station
-            ?? RefineryParser.ParseStation(tick.Text("station"))
+            ?? RefineryParser.ParseStation(tick.Text(Rois.Station.Id))
             ?? "?";
 
         int? total = null;
@@ -278,8 +310,15 @@ public sealed class RefineryLogic
 
         if (state == PanelState.Completed && !occluded)
         {
+            // The monolith read the total here and would have lost the whole tick had that OCR
+            // thrown. An errored total reads as empty and parses to null, which would file an
+            // otherwise-clean read as Partial and print a "scroll the list" nudge about a list that
+            // was never truncated — a wrong reading persisted, so the observation waits instead.
+            if (RoiFailed(tick, Rois.YieldTotal.Id))
+                return;
+
             // Same frame as the rows above — the monolith's conditional OCR call is now a lookup.
-            var totalText = tick.Text("yieldTotal");
+            var totalText = tick.Text(Rois.YieldTotal.Id);
             total = RefineryParser.ParseYieldTotal(totalText);
             var clean = extract.DroppedTopEdge + extract.DroppedBottomEdge == 0
                 && !materials.Any(m => m.YieldCscu == 0);
@@ -299,6 +338,7 @@ public sealed class RefineryLogic
 
         var result = _ledger.Observe(obs);
         _lastOrder = result.Merged;
+        _observedThisCycle = true;
 
         if (completeness == Completeness.Partial && result.Changed)
             _sink.WriteLine($"refinery: order at {station} partial — {materials.Count} rows, {sum}/" +
@@ -313,7 +353,11 @@ public sealed class RefineryLogic
 
     private void MarkCollected()
     {
-        if (_lastOrder is null)
+        // _observedThisCycle, not just _lastOrder: the machine reaches this from panel-state alone,
+        // and _lastOrder survives across orders. A completed panel whose rows never parsed (an
+        // errored yieldList for the whole cycle) would otherwise collect the PREVIOUS order —
+        // filing an order the user never delivered while the one they did goes unrecorded.
+        if (_lastOrder is null || !_observedThisCycle)
             return;
 
         // Keep Id/Key so OrderLedger.Observe targets this exact record via its Id fast path, rather
@@ -346,8 +390,8 @@ public sealed class RefineryLogic
 
         // Calibration aid: dump raw OCR of the regions this tracker depends on. A DETAILED
         // subscription still carries the plain text, so the setup list answers Text() too.
-        var list = tick.Text("setupList");
-        var footer = tick.Text("footer");
+        var list = tick.Text(Rois.SetupList.Id);
+        var footer = tick.Text(Rois.Footer.Id);
         _emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Manual,
             $"[raw list ROI]\r\n{list}\r\n[raw footer ROI]\r\n{footer}"));
     }
@@ -360,6 +404,28 @@ public sealed class RefineryLogic
 
     private static int? Num(ColumnarRow row, int index)
         => index < row.Numbers.Count ? row.Numbers[index] : null;
+
+    /// <summary>
+    /// Whether the engine flagged this ROI as failed on this tick, reporting it the first time and
+    /// staying quiet until it reads again. An errored ROI is not a blank one: <c>Text()</c> answers
+    /// empty either way, and every caller here has to treat "could not read" as "do nothing", never
+    /// as an observation.
+    /// </summary>
+    private bool RoiFailed(TickData tick, string roiId)
+    {
+        var error = tick.Error(roiId);
+        if (error is null)
+        {
+            _reportedFailures.Remove(roiId);
+            return false;
+        }
+
+        if (_reportedFailures.Add(roiId))
+            _sink.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] [{Name}] roi '{roiId}' unreadable: {error} " +
+                "— skipping reads that depend on it until it recovers");
+
+        return true;
+    }
 
     private static bool IsModalVisible(string text)
         => text.Contains("CONFIRM", StringComparison.OrdinalIgnoreCase)

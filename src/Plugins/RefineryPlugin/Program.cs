@@ -36,6 +36,14 @@ if (ledgerArg >= 0 && ledgerArg + 1 >= args.Length)
 }
 
 var ledgerOverride = ledgerArg >= 0 ? args[ledgerArg + 1] : null;
+if (ledgerOverride is not null && string.IsNullOrWhiteSpace(ledgerOverride))
+{
+    // A blank path beats the config value and then fails deep inside the first append, as an
+    // ArgumentException the ledger's IO catch does not cover — a tick loop that reports a failure
+    // twice a second and never records an order.
+    Console.Error.WriteLine("--ledger needs a non-blank file path.");
+    return 1;
+}
 
 var pipeName = pipeArg >= 0 ? args[pipeArg + 1] : config.PipeName;
 if (string.IsNullOrWhiteSpace(pipeName))
@@ -59,18 +67,22 @@ void Emit(TrackerRecord record)
         ""));
 }
 
-// A disabled ledger writes to a throwaway temp file so a smoke run never touches the user's real
-// orders.jsonl; --ledger points it wherever the caller wants (the parity harness uses a temp file).
-// The ledger is loaded once up front (rebuild from disk).
-var ledgerPath = ledgerOverride
-    ?? (config.LedgerEnabled
-        ? config.LedgerPath
-        : Path.Combine(Path.GetTempPath(), $"sc-tracker-ephemeral-{Guid.NewGuid():N}.jsonl"));
-var ledger = new OrderLedger(ledgerPath, sink.WriteLine);
-ledger.Load();
+// Opened on the first successful connect, not here: a replay run must never append corpus orders
+// to the user's real orders.jsonl — the monolith redirected to a throwaway file whenever it was
+// handed --replay, and now only the engine knows it is replaying. A later reconnect keeps the file
+// the run started with, the same way the logic keeps its panel state across one.
+OrderLedger? ledger = null;
+RefineryLogic? logic = null;
+var ledgerPath = "";
 
 void WriteLedgerSummary()
 {
+    if (ledger is null)
+    {
+        sink.WriteLine("Ledger: not opened (never connected to an engine)");
+        return;
+    }
+
     sink.WriteLine($"Ledger: {ledger.All.Count} orders ({ledgerPath})");
     foreach (var g in ledger.All.GroupBy(w => w.State).OrderBy(g => g.Key))
         sink.WriteLine($"  {g.Key}: {g.Count()}");
@@ -91,10 +103,7 @@ Func<RoiRect?, string, Task<string?>>? dumpFrame = config.SaveDebugFrames
     ? (roi, prefix) => client.DumpFrameAsync(roi, prefix, cts.Token)
     : null;
 
-var logic = new RefineryLogic(Emit, sink, verbose, dumpFrame, ledger);
-
 sink.WriteLine($"Pipe:      {pipeName}");
-sink.WriteLine($"Ledger:    {ledgerPath}{(config.LedgerEnabled || ledgerOverride is not null ? "" : " (disabled — throwaway file)")}");
 sink.WriteLine($"Debug:     {(config.SaveDebugFrames ? "asking the engine for a completed-panel PNG per order" : "in-memory only, no files")}");
 sink.WriteLine();
 
@@ -123,6 +132,27 @@ while (true)
     {
         var status = await client.WaitForEngineAsync(engineWait, cts.Token);
         announcedWait = false;
+
+        if (logic is null)
+        {
+            // Replay and a disabled ledger both write to a throwaway temp file, so neither a
+            // corpus run nor a smoke run can touch the real orders.jsonl. An explicit --ledger
+            // still wins: that is how the parity harness points a replay at a file it can read.
+            var throwaway = status.ReplayMode || !config.LedgerEnabled;
+            ledgerPath = ledgerOverride ?? (throwaway
+                ? Path.Combine(Path.GetTempPath(),
+                    $"sc-tracker-{(status.ReplayMode ? "replay" : "ephemeral")}-{Guid.NewGuid():N}.jsonl")
+                : config.LedgerPath);
+
+            ledger = new OrderLedger(ledgerPath, sink.WriteLine);
+            ledger.Load();
+            logic = new RefineryLogic(Emit, sink, verbose, dumpFrame, ledger);
+
+            var ledgerNote = ledgerOverride is not null || !throwaway
+                ? ""
+                : status.ReplayMode ? " (replay — throwaway file)" : " (ledger disabled — throwaway file)";
+            sink.WriteLine($"Ledger:    {ledgerPath}{ledgerNote}");
+        }
 
         await using var session = await client.TrackAsync(RefineryLogic.Name, Rois.All, cts.Token);
 

@@ -70,12 +70,22 @@ internal static class TickFactory
         proto.Results.Add(PixelResult(Rois.Toggles, toggle ?? ToggleOff));
 
         // An engine-side ROI failure keeps its slot on the tick — the plugin has to tell it apart
-        // from a successful read of an empty region, so the flag travels rather than the result
-        // being dropped.
-        foreach (var result in proto.Results.Where(r => erroredRois.Contains(r.RoiId, StringComparer.Ordinal)))
+        // from a successful read of an empty region — but it carries NO payload: ScanLoop's catch
+        // builds a bare RoiResult so a half-filled one can never escape. Replacing the result
+        // rather than flagging the filled one keeps the fixture to ticks the engine can actually
+        // send; a flagged-but-populated result would let a test pass on data the plugin will never
+        // see, which is the whole reason these are built through the wire type.
+        for (var i = 0; i < proto.Results.Count; i++)
         {
-            result.Error = true;
-            result.ErrorMessage = "fabricated ROI failure";
+            if (!erroredRois.Contains(proto.Results[i].RoiId, StringComparer.Ordinal))
+                continue;
+
+            proto.Results[i] = new RoiResult
+            {
+                RoiId = proto.Results[i].RoiId,
+                Error = true,
+                ErrorMessage = "fabricated ROI failure",
+            };
         }
 
         return TickData.From(proto);
