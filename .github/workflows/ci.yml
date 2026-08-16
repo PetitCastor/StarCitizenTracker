@@ -30,3 +30,54 @@ jobs:
 
       - name: Test
         run: dotnet test StarCitizenTracker.slnx --no-build -c Release --verbosity normal
+
+  # The wire contract is the one thing in this repo that two separately-shipped processes both
+  # depend on, and `dotnet build` cannot see a break in it: regenerating C# from a proto that
+  # dropped a field succeeds, and the plugin built against the old field only fails once it is
+  # running against the new engine. buf compares the PR's protos against master and fails on a
+  # wire- or JSON-incompatible change. Ubuntu because buf only reads .proto files — nothing here
+  # touches the Windows-only capture stack.
+  proto-guard:
+    name: Proto Lint & Breaking
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Unshallow: `breaking_against` resolves master out of the local .git, which a depth-1
+          # clone does not contain.
+          fetch-depth: 0
+
+      # checkout leaves a PR build on the merge commit with no local `master` — buf clones the
+      # local .git and looks for refs/heads/master, so without this the comparison fails with
+      # "couldn't find remote ref master" rather than passing. Skipped on a push to master, where
+      # the ref is already checked out and fetching into the current branch is refused by git.
+      - name: Fetch master (breaking-change baseline)
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags origin +refs/heads/master:refs/heads/master
+
+      - name: Lint & breaking-change check
+        uses: bufbuild/buf-action@v1
+        with:
+          # Pinned rather than floating: a buf release that adds a lint rule would otherwise turn a
+          # green PR red without a change to this repo. Bump it deliberately.
+          version: 1.72.0
+          lint: true
+          # Only a PR has a baseline to compare against; on a push to master the comparison would
+          # be master against itself.
+          breaking: ${{ github.event_name == 'pull_request' }}
+          breaking_against: ".git#branch=master"
+          # Off deliberately. `buf format` would strip the aligned trailing comments capture.proto
+          # uses to document the coordinate space of every rect field, collapse the one-line
+          # messages, and rewrite the file to LF — a formatting opinion applied to the one file in
+          # the repo whose diffs most need to stay readable. Lint and breaking are the gates that
+          # protect consumers; formatting is not.
+          format: false
+          # Nothing to publish — this repo has no BSR module, and the action's push/archive steps
+          # (both of which default to ON for the events this workflow runs on) would fail looking
+          # for credentials that do not exist.
+          push: false
+          archive: false
+          # The failing step's log is the report. A PR comment needs pull-requests: write on the
+          # default token, which this workflow does not grant.
+          pr_comment: false
