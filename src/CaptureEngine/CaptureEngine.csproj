@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Windows TFM copied from the monolith: WGC capture, Windows OCR and the low-level
+       keyboard hook all stay on this side of the boundary. Plugins are plain net10.0. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>CaptureEngine</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Hosts gRPC on Kestrel without switching to the Web SDK, which would drag in the whole
+       web app model (static files, routing conventions) for one named-pipe endpoint. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CaptureContracts\CaptureContracts.csproj" />
+    <ProjectReference Include="..\Common\Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="engine-config.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CaptureEngine.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore" Version="2.83.0" />
+    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="10.0.11" />
+  </ItemGroup>
+
+</Project>
