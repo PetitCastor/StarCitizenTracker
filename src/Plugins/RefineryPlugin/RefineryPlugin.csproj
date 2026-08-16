@@ -22,6 +22,10 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="RefineryPlugin.Tests" />
+    <!-- The replay-parity tests (ENGINE-SPLIT TASK-7) run the engine, the SDK and this plugin in
+         one process, so they live with the engine's suite — the only project that can own both
+         ends of the pipe — and drive RefineryRunner and the Rois set directly. -->
+    <InternalsVisibleTo Include="CaptureEngine.Tests" />
   </ItemGroup>
 
 </Project>

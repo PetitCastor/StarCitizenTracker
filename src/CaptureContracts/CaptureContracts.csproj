@@ -17,7 +17,7 @@
   <!-- "Both" generates the client (CaptureEngineServiceClient) for the SDK/plugins and the
        server base (CaptureEngineServiceBase) for the engine, from one frozen contract. -->
   <ItemGroup>
-    <Protobuf Include="..\..\protos\capture.proto" GrpcServices="Both" Link="protos\capture.proto" />
+    <Protobuf Include="$(MSBuildThisFileDirectory)..\..\protos\capture.proto" GrpcServices="Both" Link="protos\capture.proto" />
   </ItemGroup>
 
 </Project>

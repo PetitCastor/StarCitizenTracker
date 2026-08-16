@@ -123,7 +123,7 @@ while (true)
             }
         }
     }
-    catch (OperationCanceledException)
+    catch (OperationCanceledException) when (cts.IsCancellationRequested)
     {
         break; // our own Ctrl+C: the channel maps a cancelled call to this, not RpcException
     }
@@ -137,11 +137,17 @@ while (true)
     {
         continue; // engine still not serving; the line above already says we are waiting
     }
-    catch (RpcException)
+    catch (Exception ex) when (ex is RpcException or OperationCanceledException)
     {
         // The engine went away mid-session. Reconnecting means a fresh subscription, and the
         // logic's counter state is deliberately kept: the missions it already saw are still
         // accepted, and the first tab read after reconnect is a re-sighting, not an accept.
+        //
+        // OperationCanceledException lands here too, and only because cts did NOT cause it: the
+        // channel sets ThrowOperationCanceledOnCancellation, which maps a call the ENGINE cancelled
+        // (a restart aborting the in-flight Track with CANCELLED) to the same exception type as our
+        // own Ctrl+C. Caught unfiltered, that would exit the plugin 0 on exactly the failure this
+        // loop exists to survive.
         sink.WriteLine("engine connection lost — reconnecting");
 
         // Paced: WaitForEngineAsync returns immediately whenever GetStatus answers, so an engine
