@@ -10,11 +10,14 @@ named-pipe gRPC, so a plugin cannot take down screen capture or another plugin.
 | --- | --- |
 | `src/CaptureEngine` | Captures monitor frames, runs OCR, and hosts the named-pipe gRPC service. |
 | `src/CaptureContracts` | Protocol Buffers contract shared by the engine and plugins. |
-| `src/TrackerSdk` | Client helpers for authoring tracker plugins. |
+| `src/TrackerSdk` | Plugin SDK: the engine client, the `ITrackerPlugin` contract, and `TrackerPluginHost`. |
 | `src/Plugins/MissionPlugin` | Tracks mission information from the in-game UI. |
 | `src/Plugins/RefineryPlugin` | Tracks refinery work-order information from the in-game UI. |
-| `src/Common` | Shared configuration and console support. |
 | `tests` | Unit, integration, and replay-parity test projects. |
+
+A plugin implements `ITrackerPlugin` — a name, a set of regions, and what to do with a tick — and
+hands it to `TrackerPluginHost.RunAsync`, which owns connecting, subscribing, reconnecting,
+cancellation, and the end-of-run summary.
 
 The engine/plugin wire contract — transport, handshake, version policy, and the guarantees a plugin
 may rely on — is documented in [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Changes to

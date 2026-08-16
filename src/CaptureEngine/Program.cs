@@ -1,6 +1,5 @@
 using CaptureEngine;
 using CaptureEngine.Metrics;
-using Common;
 
 // First statement so every later write goes through it and disposal (status-bar erase,
 // cursor restore) is guaranteed on every return path.

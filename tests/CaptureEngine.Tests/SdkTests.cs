@@ -1,6 +1,5 @@
 using CaptureContracts;
 using CaptureContracts.Proto;
-using Common;
 using TrackerSdk;
 using Xunit;
 

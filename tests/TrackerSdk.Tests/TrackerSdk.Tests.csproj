@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Plain net10.0, like Common itself: the shared types are deliberately WinRT-free so both the
-       engine and the plugins can take them, and a Windows TFM here would stop proving that. -->
+  <!-- Plain net10.0, like the SDK itself: this is the library every plugin references, and if its
+       own suite ever needed a Windows TFM to compile, a WinRT type would have leaked into it. -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -24,7 +24,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Common\Common.csproj" />
+    <ProjectReference Include="..\..\src\TrackerSdk\TrackerSdk.csproj" />
+    <!-- Ticks are built here from the wire type the engine would have sent, so the contracts are
+         named directly rather than leaned on transitively. -->
+    <ProjectReference Include="..\..\src\CaptureContracts\CaptureContracts.csproj" />
   </ItemGroup>
 
 </Project>

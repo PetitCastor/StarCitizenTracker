@@ -1,7 +1,7 @@
-using Common;
 using RefineryPlugin.Orders;
 using Xunit;
 using static RefineryPlugin.Tests.TickFactory;
+using TrackerSdk;
 
 namespace RefineryPlugin.Tests;
 

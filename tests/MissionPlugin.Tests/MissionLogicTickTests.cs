@@ -1,8 +1,8 @@
 using CaptureContracts;
-using Common;
 using MissionPlugin;
 using Xunit;
 using static MissionPlugin.Tests.TickFactory;
+using TrackerSdk;
 
 namespace MissionPlugin.Tests;
 

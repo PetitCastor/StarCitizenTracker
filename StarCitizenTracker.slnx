@@ -2,7 +2,6 @@
   <Folder Name="/src/">
     <Project Path="src/CaptureContracts/CaptureContracts.csproj" />
     <Project Path="src/CaptureEngine/CaptureEngine.csproj" />
-    <Project Path="src/Common/Common.csproj" />
     <Project Path="src/TrackerSdk/TrackerSdk.csproj" />
   </Folder>
   <Folder Name="/src/Plugins/">
@@ -12,8 +11,8 @@
   <Folder Name="/tests/">
     <Project Path="tests/CaptureContracts.Tests/CaptureContracts.Tests.csproj" />
     <Project Path="tests/CaptureEngine.Tests/CaptureEngine.Tests.csproj" />
-    <Project Path="tests/Common.Tests/Common.Tests.csproj" />
     <Project Path="tests/MissionPlugin.Tests/MissionPlugin.Tests.csproj" />
     <Project Path="tests/RefineryPlugin.Tests/RefineryPlugin.Tests.csproj" />
+    <Project Path="tests/TrackerSdk.Tests/TrackerSdk.Tests.csproj" />
   </Folder>
 </Solution>

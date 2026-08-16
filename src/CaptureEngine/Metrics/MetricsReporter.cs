@@ -1,4 +1,3 @@
-using Common;
 
 namespace CaptureEngine.Metrics;
 

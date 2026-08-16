@@ -1,4 +1,4 @@
-namespace Common;
+namespace TrackerSdk;
 
 /// <summary>
 /// Single point of console output: scrolling log lines plus one live status row pinned
@@ -8,7 +8,12 @@ namespace Common;
 /// piped to a file) the status bar is disabled and everything degrades to plain
 /// scrolling writes.
 /// </summary>
-public sealed class ConsoleSink : IDisposable
+/// <remarks>
+/// The engine keeps a deliberate fork of this class (<c>CaptureEngine/Core/ConsoleSink.cs</c>):
+/// after the repo split the engine cannot depend on the SDK package, and a console UI is not a
+/// contract worth publishing a shared package for. The two are expected to drift.
+/// </remarks>
+public sealed class ConsoleSink : IPluginOutput, IDisposable
 {
     private readonly Lock _gate = new();
     private readonly bool _interactive = !Console.IsOutputRedirected;

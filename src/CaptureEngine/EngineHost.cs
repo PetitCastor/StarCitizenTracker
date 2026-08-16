@@ -1,5 +1,4 @@
 using CaptureEngine.Grpc;
-using Common;
 using Microsoft.AspNetCore.Builder;
 
 namespace CaptureEngine;

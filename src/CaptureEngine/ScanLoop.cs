@@ -1,7 +1,6 @@
 using System.Threading.Channels;
 using CaptureContracts;
 using CaptureContracts.Proto;
-using Common;
 using Google.Protobuf;
 using Windows.Graphics.Imaging;
 

@@ -1,4 +1,4 @@
-namespace Common
+namespace TrackerSdk
 {
     public enum TriggerKind { Auto, Manual }
 }

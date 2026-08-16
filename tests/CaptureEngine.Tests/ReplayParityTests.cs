@@ -1,5 +1,4 @@
 using System.Text;
-using Common;
 using RefineryPlugin;
 using RefineryPlugin.Orders;
 using TrackerSdk;
@@ -88,7 +87,13 @@ public class ReplayParityTests(ITestOutputHelper output)
     private async Task<(OrderLedger Ledger, List<TrackerRecord> Records)> RunCorpusAsync(string corpus)
     {
         using var cts = new CancellationTokenSource(TestTimeout);
-        using var sink = new ConsoleSink();
+
+        // Two sinks, because there are now two ConsoleSink classes: the engine's own copy and the
+        // SDK's. That is the deliberate fork (see CaptureEngine/Core/ConsoleSink.cs) showing through
+        // in the one project that hosts both sides in a single process — after the repo split, these
+        // would be two processes and the question could not arise.
+        using var engineSink = new ConsoleSink();
+        using var pluginSink = new TrackerSdk.ConsoleSink();
 
         var corpusDir = Path.Combine(FixturesRoot, corpus);
         Assert.True(Directory.Exists(corpusDir), $"corpus not copied to the test output: {corpusDir}");
@@ -106,7 +111,7 @@ public class ReplayParityTests(ITestOutputHelper output)
             var frameCount = source.FrameCount;
 
             await using var engine = EngineHost.Create(pipeName, new EngineConfig(), new OcrPipeline(),
-                source, sink, verbose: false);
+                source, engineSink, verbose: false);
             await engine.StartAsync(cts.Token);
 
             // The loop's own stop signal, distinct from the client-side budget: the finally below
@@ -127,8 +132,8 @@ public class ReplayParityTests(ITestOutputHelper output)
                 // part of what the split changed and therefore part of what parity has to cover. It
                 // returns when the engine completes the stream at corpus exhaustion.
                 await RefineryRunner.RunAsync(client, pipeName,
-                    _ => new RefineryLogic(records.Add, sink, verbose: false, dumpFrame: null, ledger),
-                    sink, cts.Token);
+                    _ => new RefineryLogic(records.Add, pluginSink, verbose: false, dumpFrame: null, ledger),
+                    pluginSink, cts.Token);
 
                 // Checked before the assertions so a hang is reported as one. The runner treats a
                 // cancelled stream as a stream that ended, so a fired budget otherwise reaches the
