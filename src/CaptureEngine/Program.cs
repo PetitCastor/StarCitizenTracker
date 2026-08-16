@@ -1,7 +1,6 @@
 using CaptureEngine;
-using CaptureEngine.Grpc;
+using CaptureEngine.Metrics;
 using Common;
-using Microsoft.AspNetCore.Builder;
 
 // First statement so every later write goes through it and disposal (status-bar erase,
 // cursor restore) is guaranteed on every return path.
@@ -11,7 +10,8 @@ sink.WriteLine("=== Star Citizen Tracker — Capture Engine ===");
 
 var config = EngineConfig.Load(Path.Combine(AppContext.BaseDirectory, "engine-config.json"));
 
-// CLI: --pipe <name>, --ocr-lang <bcp47>, --monitor <index> (each overrides config), --verbose
+// CLI: --pipe <name>, --ocr-lang <bcp47>, --monitor <index> (each overrides config),
+//      --replay <dir> (feed saved PNGs through the engine instead of live capture), --verbose
 var verbose = args.Contains("--verbose", StringComparer.OrdinalIgnoreCase);
 
 string? ArgValue(string name) => args
@@ -37,6 +37,13 @@ if (ArgValue("--monitor") is { } monitorArg)
     config.MonitorIndex = monitorIndex;
 }
 
+var replayDir = ArgValue("--replay");
+if (replayDir is not null && !Directory.Exists(replayDir))
+{
+    Console.Error.WriteLine($"Replay directory not found: {replayDir}");
+    return 1;
+}
+
 // Missing/unsupported pack is user setup, not a bug: fail with the fix instructions, no stack trace.
 OcrPipeline ocr;
 try
@@ -49,15 +56,49 @@ catch (InvalidOperationException ex)
     return 1;
 }
 
-var status = new EngineStatus(ocr.LanguageTag, replayMode: false);
+// Replay is offline and deterministic: no capture session, no hotkey (there is no live screen to
+// trigger against), and no metrics timer — a 1 Hz status bar over a batch run is pure flicker.
+IFrameSource source;
+string captureLine;
 
-var app = GrpcHost.BuildGrpcHost(pipeName, status);
+if (replayDir is not null)
+{
+    var replay = new ReplayFrameSource(replayDir);
+    source = replay;
+    captureLine = $"Replay:    {replay.FrameCount} frame(s) from {replayDir}";
+}
+else
+{
+    var monitors = MonitorCapture.EnumerateMonitors();
+    if (monitors.Count == 0)
+    {
+        Console.Error.WriteLine("No monitors found.");
+        return 1;
+    }
+
+    var monitorIndex = config.MonitorIndex;
+    if (monitorIndex < 0 || monitorIndex >= monitors.Count)
+    {
+        sink.WriteLine($"monitorIndex {monitorIndex} out of range, falling back to 0 (primary).");
+        monitorIndex = 0;
+    }
+
+    var monitor = monitors[monitorIndex];
+    var capture = new MonitorCapture(monitor.Handle);
+    if (!capture.BorderDisabled)
+        sink.WriteLine("Note: OS refused to remove the yellow capture border (cosmetic only).");
+
+    source = new LiveFrameSource(capture);
+    captureLine = $"Capturing: [{monitorIndex}] {monitor.DeviceName} {monitor.Width}x{monitor.Height}";
+}
+
+await using var engine = EngineHost.Create(pipeName, config, ocr, source, sink, verbose);
 
 // Same fail-with-a-message contract as the OCR pack check above: a pipe name collision
 // (second instance already bound, or an invalid name) is user error, not a bug.
 try
 {
-    await app.StartAsync();
+    await engine.StartAsync();
 }
 catch (Exception ex)
 {
@@ -66,11 +107,12 @@ catch (Exception ex)
 }
 
 sink.WriteLine($"Pipe:      {pipeName}");
-sink.WriteLine($"Monitor:   index {config.MonitorIndex} (capture starts in TASK-3)");
+sink.WriteLine(captureLine);
 var otherOcrPacks = OcrPipeline.AvailableLanguageTags.Where(t => t != ocr.LanguageTag).ToArray();
 sink.WriteLine($"OCR:       {ocr.Language}{(otherOcrPacks.Length > 0
     ? $" — also installed: {string.Join(", ", otherOcrPacks)}"
     : "")}");
+sink.WriteLine($"Dumps:     {config.OutputDir}");
 sink.WriteLine($"Verbose:   {(verbose ? "on" : "off")}");
 
 using var cts = new CancellationTokenSource();
@@ -80,20 +122,40 @@ Console.CancelKeyPress += (_, e) =>
     cts.Cancel();
 };
 
+HotkeyListener? hotkey = null;
+MetricsReporter? metrics = null;
+
+if (replayDir is null)
+{
+    var (modifiers, virtualKey) = HotkeyListener.ParseHotkey(config.Hotkey);
+    hotkey = new HotkeyListener(modifiers, virtualKey, engine.ScanLoop.TriggerManual);
+    sink.WriteLine($"Hotkey:    {config.Hotkey} (manual trigger)");
+    sink.WriteLine($"Metrics:   {(config.MetricsEnabled ? $"live status bar every {config.MetricsIntervalMs} ms" : "disabled")}");
+}
+
 sink.WriteLine();
-sink.WriteLine("Listening. Ctrl+C to quit.");
+sink.WriteLine(replayDir is null
+    ? "Scanning. Ctrl+C to quit."
+    : "Waiting for a plugin to subscribe before replaying the corpus. Ctrl+C to quit.");
 sink.WriteLine();
 
-// No scan loop yet (TASK-3): the process exists only to serve the pipe until cancelled.
 try
 {
-    await Task.Delay(Timeout.Infinite, cts.Token);
+    // Created after the banner so it disposes before the sink: the timer is fully stopped
+    // (in-flight tick drained) before the sink erases the status line on shutdown.
+    if (replayDir is null && config.MetricsEnabled)
+        metrics = new MetricsReporter(sink, TimeSpan.FromMilliseconds(config.MetricsIntervalMs));
+
+    await engine.RunScanAsync(cts.Token);
 }
-catch (OperationCanceledException)
+finally
 {
+    metrics?.Dispose(); // stop status updates before the summary prints
+    hotkey?.Dispose();
 }
 
-await app.StopAsync();
+await engine.StopAsync();
 
-sink.WriteLine("Engine stopped.");
+sink.WriteLine();
+sink.WriteLine($"Engine stopped after {engine.Status.Snapshot().FrameSeq} frame(s).");
 return 0;

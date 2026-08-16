@@ -1,8 +1,9 @@
-// TRANSITIONAL DUPLICATE of src/TrackingService/Core/PixelSampler.cs, byte-identical apart from
-// the namespace. Nothing references this copy yet — the engine picks it up in ENGINE-SPLIT
-// TASK-3, and TASK-8 deletes the monolith's copy in favour of it. Until then both are live and
-// must be edited together. No parity test: AveragePatch needs a real SoftwareBitmap crop to
-// exercise, which the monolith's suite doesn't cover in isolation either.
+// TRANSITIONAL DUPLICATE of src/TrackingService/Core/PixelSampler.cs, identical apart from the
+// namespace and the internal Bgra/Stride accessors added for ENGINE-SPLIT TASK-3 (the scan loop
+// puts the raw buffer on the wire for ROI_MODE_PIXELS; the monolith samples it in-process and has
+// no reason to expose it). TASK-8 deletes the monolith's copy in favour of this one. Until then
+// both are live and must be edited together. No parity test: AveragePatch needs a real
+// SoftwareBitmap crop to exercise, which the monolith's suite doesn't cover in isolation either.
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
 
@@ -22,6 +23,16 @@ public sealed class PixelStrip
     public int Height { get; }
     public int FrameX { get; }
     public int FrameY { get; }
+
+    /// <summary>
+    /// Raw BGRA rows, for the scan loop to copy onto the wire. Not public: outside the engine the
+    /// buffer is meaningless without <see cref="Stride"/>, and callers should sample through
+    /// <see cref="AveragePatch"/> (or, across the boundary, PixelPatchSampler) instead.
+    /// </summary>
+    internal byte[] Bgra => _bgra;
+
+    /// <summary>Bytes per row, which may exceed Width * 4 when the decoder pads rows.</summary>
+    internal int Stride => _stride;
 
     internal PixelStrip(byte[] bgra, int stride, int width, int height, int frameX, int frameY)
     {
