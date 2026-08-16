@@ -32,7 +32,11 @@ Thumbs.db
 *.local.json
 local.config
 
-# Local-only docs/notes
+# Local-only docs/notes — working plans and session notes stay out of the repo.
 /tasks/
 /*.md
 .rtk/
+
+# ...except the README: the release ships three interdependent exes (engine first, matching
+# pipe name), and a clone or a release download has nowhere else to learn that.
+!/README.md

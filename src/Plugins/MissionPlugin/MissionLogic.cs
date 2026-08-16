@@ -66,7 +66,7 @@ public sealed partial class MissionLogic
 
     public async Task OnTickAsync(TickData tick, CancellationToken ct = default)
     {
-        // Manual first, then the normal scan — the same order TrackerHost used when a hotkey
+        // Manual first, then the normal scan — the order the monolith used when a hotkey
         // press was queued, so a press during a counter change still captures the pane as it
         // was before the change is acted on.
         if (tick.Manual)

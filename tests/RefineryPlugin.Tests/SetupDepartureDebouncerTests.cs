@@ -3,10 +3,11 @@ using Xunit;
 namespace RefineryPlugin.Tests;
 
 /// <summary>
-/// Offline tests for <see cref="SetupDepartureDebouncer"/> — the pure seam that guards RefineryTracker's
-/// SETUP-accumulator lifecycle (reset-on-entry, submit-on-exit, cancel-clear) against single-tick OCR
-/// flicker. See RefineryLogic.ScanAsync for how <see cref="SetupTransition.OpenedFresh"/> and
-/// <see cref="SetupTransition.DepartedTo"/> drive the accumulator reset / submit / cancel-clear.
+/// Offline tests for <see cref="SetupDepartureDebouncer"/> — the pure seam that guards
+/// <see cref="RefineryLogic"/>'s SETUP-accumulator lifecycle (reset-on-entry, submit-on-exit,
+/// cancel-clear) against single-tick OCR flicker. See <see cref="RefineryLogic.OnTickAsync"/> for how
+/// <see cref="SetupTransition.OpenedFresh"/> and <see cref="SetupTransition.DepartedTo"/> drive the
+/// accumulator reset / submit / cancel-clear.
 /// </summary>
 public class SetupDepartureDebouncerTests
 {

@@ -22,7 +22,7 @@ internal sealed class LiveFrameSource : IFrameSource
             return null; // idle screen: the loop owns the retry delay
 
         // The GPU frame is only a staging buffer for the CPU copy; releasing it immediately
-        // returns the slot to the frame pool, exactly as TrackerHost.RunAsync does.
+        // returns the slot to the frame pool, exactly as the monolith's scan loop did.
         try
         {
             return await OcrPipeline.ToSoftwareBitmapAsync(frame);

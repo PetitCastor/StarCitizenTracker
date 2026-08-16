@@ -62,7 +62,7 @@ public class MissionLogicTickTests
 
     /// <summary>
     /// A hotkey press on the same tick that the counter moves. Both captures happen, manual first
-    /// — the order TrackerHost used when a press was queued, and the one that lets a user grab the
+    /// — the order the monolith used when a press was queued, and the one that lets a user grab the
     /// pane as it was before the accept is acted on.
     /// </summary>
     [Fact]
