@@ -29,31 +29,4 @@ internal sealed class FrameDumpService
         return path;
     }
 
-    /// <summary>
-    /// Acquires the scan loop's <see cref="ScanLoop.FrameGate"/> and saves the currently
-    /// retained frame if one is available.
-    /// </summary>
-    public async Task<string?> DumpRetainedAsync(ScanLoop loop)
-    {
-        await loop.FrameGate.WaitAsync();
-        try
-        {
-            if (loop.RetainedFrame is not { } frame)
-            {
-                _sink?.WriteLine("[frames] no frame retained yet to save");
-                return null;
-            }
-
-            return await DumpFrameAsync(frame);
-        }
-        catch (Exception ex)
-        {
-            _sink?.WriteLine($"[frames] failed to save frame: {ex.Message}");
-            return null;
-        }
-        finally
-        {
-            loop.FrameGate.Release();
-        }
-    }
 }

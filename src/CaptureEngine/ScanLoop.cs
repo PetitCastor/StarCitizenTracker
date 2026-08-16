@@ -33,6 +33,7 @@ internal sealed class ScanLoop : IDisposable
     private ulong _seq;
     private int _manualFlag;
     private int _lastFrameWidth, _lastFrameHeight;
+    private Func<SoftwareBitmap, Task>? _manualFrameHandler;
 
     // The frame ReadRoi/DumpFrame answer from. Only ever touched under FrameGate.
     private SoftwareBitmap? _lastScanned;
@@ -76,6 +77,16 @@ internal sealed class ScanLoop : IDisposable
     /// </summary>
     public void TriggerManual() => Interlocked.Exchange(ref _manualFlag, 1);
 
+    /// <summary>
+    /// Marks the next tick as manual and invokes <paramref name="onFrame"/> with that tick's
+    /// retained bitmap while <see cref="FrameGate"/> is held.
+    /// </summary>
+    public void TriggerManual(Func<SoftwareBitmap, Task> onFrame)
+    {
+        Interlocked.Exchange(ref _manualFrameHandler, onFrame);
+        Interlocked.Exchange(ref _manualFlag, 1);
+    }
+
     public async Task RunAsync(CancellationToken ct)
     {
         try
@@ -100,6 +111,9 @@ internal sealed class ScanLoop : IDisposable
                 // Read once for the whole tick: two clients must not disagree about whether the
                 // hotkey fired on this frame.
                 var manual = Interlocked.Exchange(ref _manualFlag, 0) == 1;
+                var manualFrameHandler = manual
+                    ? Interlocked.Exchange(ref _manualFrameHandler, null)
+                    : null;
 
                 LogFrameSizeChanges(bitmap);
 
@@ -141,7 +155,7 @@ internal sealed class ScanLoop : IDisposable
                         }
                     }
 
-                    await SwapRetainedAsync(bitmap);
+                    await SwapRetainedAsync(bitmap, manualFrameHandler);
                     retained = true;
                 }
                 finally
@@ -297,13 +311,25 @@ internal sealed class ScanLoop : IDisposable
     /// Deliberately not cancellable: the gate is only ever held for the length of one unary RPC,
     /// and bailing out here would leave the frame owned by nobody.
     /// </remarks>
-    private async Task SwapRetainedAsync(SoftwareBitmap bitmap)
+    private async Task SwapRetainedAsync(SoftwareBitmap bitmap, Func<SoftwareBitmap, Task>? manualFrameHandler)
     {
         await FrameGate.WaitAsync();
         try
         {
             _lastScanned?.Dispose();
             _lastScanned = bitmap;
+
+            if (manualFrameHandler is not null)
+            {
+                try
+                {
+                    await manualFrameHandler(bitmap);
+                }
+                catch (Exception ex)
+                {
+                    _sink.WriteLine($"[frames] failed to save frame: {ex.Message}");
+                }
+            }
         }
         finally
         {

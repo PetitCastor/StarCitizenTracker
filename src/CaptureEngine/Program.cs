@@ -143,8 +143,7 @@ if (replayDir is null)
         var frameDumper = new FrameDumpService(config.OutputDir, sink);
         onHotkey = () =>
         {
-            engine.ScanLoop.TriggerManual();
-            _ = frameDumper.DumpRetainedAsync(engine.ScanLoop);
+            engine.ScanLoop.TriggerManual(frameDumper.DumpFrameAsync);
         };
     }
     else
