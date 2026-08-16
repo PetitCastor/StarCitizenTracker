@@ -187,6 +187,92 @@ public class TrackerPluginHostTests
         Assert.Contains("in-memory only, no files", output.Text);
     }
 
+    /// <summary>
+    /// The host's own config wiring, which every other test here switches off. Proves the default
+    /// path actually resolves a file next to the plugin and runs the loader through it — a
+    /// <c>LoadConfig</c> that looked in the wrong directory, or skipped the write, would otherwise
+    /// only be caught once a real plugin shipped without a discoverable config.json.
+    /// </summary>
+    [Fact]
+    public async Task WithNoConfigFile_TheHostWritesOneWithTheDefaults()
+    {
+        // A unique name in the test assembly's own directory: AppContext.BaseDirectory is where the
+        // host looks, and it is not a knob.
+        var fileName = $"host-cfg-{Guid.NewGuid():N}.json";
+        var path = Path.Combine(AppContext.BaseDirectory, fileName);
+
+        try
+        {
+            using var shutdown = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+            var output = new RecordingOutput();
+
+            var exit = await TrackerPluginHost.RunAsync(new StubPlugin(), ["--pipe", DeadPipe()],
+                new PluginHostOptions
+                {
+                    Output = output,
+                    ConfigFileName = fileName,
+                    HandleCancelKeyPress = false,
+                    ShutdownToken = shutdown.Token,
+                }).WaitAsync(TestTimeout);
+
+            Assert.Equal(0, exit);
+            Assert.True(File.Exists(path), $"the host did not write {path}");
+
+            var written = File.ReadAllText(path);
+            Assert.Contains("\"pipeName\"", written);
+            Assert.Contains("\"saveDebugFrames\"", written);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// A plugin whose settings extend <see cref="PluginConfig"/> loads them itself and hands the
+    /// instance over; the host must then read ITS values and leave the file alone, because that load
+    /// already wrote the defaults on a first run.
+    /// </summary>
+    [Fact]
+    public async Task WithASuppliedConfig_TheHostUsesItAndWritesNothing()
+    {
+        var fileName = $"host-cfg-{Guid.NewGuid():N}.json";
+        var path = Path.Combine(AppContext.BaseDirectory, fileName);
+
+        try
+        {
+            using var shutdown = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+            var output = new RecordingOutput();
+            var pipe = DeadPipe();
+
+            var exit = await TrackerPluginHost.RunAsync(new StubPlugin(), [],
+                new PluginHostOptions
+                {
+                    Output = output,
+                    // Both set: the supplied config must win, and the file name must be ignored.
+                    Config = new SuppliedConfig { PipeName = pipe, SaveDebugFrames = true },
+                    ConfigFileName = fileName,
+                    HandleCancelKeyPress = false,
+                    ShutdownToken = shutdown.Token,
+                }).WaitAsync(TestTimeout);
+
+            Assert.Equal(0, exit);
+            Assert.False(File.Exists(path), "the host wrote a config file it was handed one for");
+
+            // Its PipeName reached the connect, and its SaveDebugFrames reached the banner.
+            Assert.Contains($"waiting for engine on pipe '{pipe}'...", output.Lines);
+            Assert.Contains("asking the engine for a PNG per capture", output.Text);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    private sealed class SuppliedConfig : PluginConfig;
+
     [Fact]
     public async Task NullOptions_AreAccepted()
     {

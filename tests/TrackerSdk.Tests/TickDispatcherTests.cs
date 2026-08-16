@@ -267,6 +267,28 @@ public class TickDispatcherTests
     }
 
     /// <summary>
+    /// A reconnect is a new stretch — quite possibly against a restarted engine with a different
+    /// frame size, which is one of the things that makes a ROI fail in the first place. Without the
+    /// re-arm, an operator who reconnects while calibrating gets one warning for the whole run.
+    /// </summary>
+    [Fact]
+    public async Task AFailureStillPresentAfterAReconnect_IsReportedAgain()
+    {
+        var plugin = TwoRoiPlugin(RoiErrorPolicy.AbortTick);
+        var dispatcher = New(plugin, out var output);
+
+        await dispatcher.DispatchAsync(
+            Tick(1, rois: [(PanelRoi, "SETUP", false), (ToggleRoi, "", true)]), default);
+
+        dispatcher.OnConnected();
+
+        await dispatcher.DispatchAsync(
+            Tick(2, rois: [(PanelRoi, "SETUP", false), (ToggleRoi, "", true)]), default);
+
+        Assert.Equal(2, output.Lines.Count(l => l.Contains("ROI failure")));
+    }
+
+    /// <summary>
     /// The report goes through <see cref="IPluginServices.LogVerbose"/>, so a normal run stays quiet:
     /// it is a calibration diagnostic, not something a user is meant to read.
     /// </summary>

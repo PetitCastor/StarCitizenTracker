@@ -27,11 +27,24 @@ internal sealed class TickDispatcher
     }
 
     /// <summary>
-    /// A new session started. Resets the sequence baseline: the engine kept scanning while the client
-    /// was away, so the first tick of the new session is legitimately far ahead of the last of the
-    /// old one, and reporting that as dropped ticks would fire the event on every reconnect there is.
+    /// A new session started.
     /// </summary>
-    public void OnConnected() => _seq.Reset();
+    /// <remarks>
+    /// Resets the sequence baseline, because the engine kept scanning while the client was away: the
+    /// first tick of the new session is legitimately far ahead of the last of the old one, and
+    /// reporting that as dropped ticks would fire the event on every reconnect there is.
+    /// <para>
+    /// Re-arms the failure latch too. A reconnect is a new stretch — quite possibly against a
+    /// restarted engine with a different frame size, which is one of the things that makes a ROI fail
+    /// — and an operator who reconnects while calibrating would otherwise get one warning for the
+    /// whole run instead of one per session.
+    /// </para>
+    /// </remarks>
+    public void OnConnected()
+    {
+        _seq.Reset();
+        _failures.Reset();
+    }
 
     /// <summary>Applies the policies and hands the tick to the plugin.</summary>
     public async Task DispatchAsync(TickData tick, CancellationToken ct)
@@ -117,5 +130,8 @@ internal sealed class TickDispatcher
             _reported = key;
             return errored.Count > 0;
         }
+
+        /// <summary>Forgets what was reported, so the next failure is news again.</summary>
+        public void Reset() => _reported = "";
     }
 }

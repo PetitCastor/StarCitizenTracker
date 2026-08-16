@@ -178,6 +178,21 @@ public static class TrackerPluginHost
                     throw ProtocolNegotiation.Translate(e, ProtocolVersion.Current);
                 }
             }
+            catch (ProtocolMismatchException ex)
+            {
+                // The one failure the loop must NOT retry. Both sides' versions are fixed for the
+                // life of their processes, so dialling again can only reproduce this forever — and
+                // the useful thing to tell the user is which side to upgrade, which the message says.
+                //
+                // FIRST, and specifically ahead of the cancellation-filtered arms below: this derives
+                // from TrackerSdkException, and catch clauses match in textual order, so placing it
+                // after them would let a shutdown racing the refusal report an incompatible engine as
+                // a clean exit 0. Cancellation cannot manufacture this exception — it needs either the
+                // engine's FAILED_PRECONDITION with range trailers or the range check in
+                // WaitForEngineAsync — so whenever it is raised it is the true reason the run ended.
+                output.WriteLine($"incompatible engine: {ex.Message}");
+                return (StreamEndReason.Faulted, 1);
+            }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 // our own Ctrl+C: the channel maps a cancelled call to this, not RpcException
@@ -192,14 +207,6 @@ public static class TrackerPluginHost
             catch (TimeoutException)
             {
                 continue; // engine still not serving; the line above already says we are waiting
-            }
-            catch (ProtocolMismatchException ex)
-            {
-                // The one failure the loop must NOT retry. Both sides' versions are fixed for the
-                // life of their processes, so dialling again can only reproduce this forever — and
-                // the useful thing to tell the user is which side to upgrade, which the message says.
-                output.WriteLine($"incompatible engine: {ex.Message}");
-                return (StreamEndReason.Faulted, 1);
             }
             catch (Exception ex) when (ex is TrackerSdkException or OperationCanceledException)
             {
