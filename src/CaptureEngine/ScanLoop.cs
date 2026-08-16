@@ -176,13 +176,7 @@ internal sealed class ScanLoop : IDisposable
             var width = bitmap.PixelWidth;
             var height = bitmap.PixelHeight;
 
-            // RoiScaler.ToFrame clamps into the frame, so an ROI that lies entirely off-screen
-            // comes back as a 1x1 sliver at the edge — a read that succeeds and means nothing.
-            // Reject it here instead: a plugin with a mistyped constant gets told, not fed.
-            if (LiesOutsideFrame(reference, width, height))
-                throw new ArgumentOutOfRangeException(nameof(spec),
-                    $"ROI {reference.Width}x{reference.Height} at {reference.X},{reference.Y} (reference space) " +
-                    $"lies outside the {width}x{height} frame.");
+            EnsureRoiInFrame(reference, width, height);
 
             var frameRect = RoiScaler.ToFrame(reference, width, height);
             var bounds = OcrPipeline.ClampToBitmap(frameRect.ToBounds(), width, height);
@@ -250,6 +244,23 @@ internal sealed class ScanLoop : IDisposable
         }
 
         FrameGate.Dispose();
+    }
+
+    /// <summary>
+    /// Rejects a reference-space ROI that cannot touch the frame at all, instead of letting
+    /// <see cref="RoiScaler.ToFrame"/> silently clamp it to a meaningless 1-pixel sliver at the
+    /// edge — a read that succeeds and means nothing. Shared by every caller that turns a client
+    /// ROI into a frame crop (<see cref="ReadOneAsync"/> and DumpFrame's crop path alike), so a
+    /// mistyped constant is told, not fed, no matter which RPC it arrived on.
+    /// </summary>
+    internal static void EnsureRoiInFrame(RoiRect reference, int frameWidth, int frameHeight)
+    {
+        if (!LiesOutsideFrame(reference, frameWidth, frameHeight))
+            return;
+
+        throw new ArgumentOutOfRangeException(nameof(reference),
+            $"ROI {reference.Width}x{reference.Height} at {reference.X},{reference.Y} (reference space) " +
+            $"lies outside the {frameWidth}x{frameHeight} frame.");
     }
 
     /// <summary>

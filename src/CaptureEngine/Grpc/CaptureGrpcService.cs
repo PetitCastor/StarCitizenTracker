@@ -153,8 +153,10 @@ public sealed class CaptureGrpcService : CaptureEngineService.CaptureEngineServi
             }
             else
             {
-                var frameRect = RoiScaler.ToFrame((request.Roi ?? new Rect()).ToRoiRect(),
-                    bitmap.PixelWidth, bitmap.PixelHeight);
+                var reference = (request.Roi ?? new Rect()).ToRoiRect();
+                ScanLoop.EnsureRoiInFrame(reference, bitmap.PixelWidth, bitmap.PixelHeight);
+
+                var frameRect = RoiScaler.ToFrame(reference, bitmap.PixelWidth, bitmap.PixelHeight);
                 var bounds = OcrPipeline.ClampToBitmap(frameRect.ToBounds(), bitmap.PixelWidth, bitmap.PixelHeight);
 
                 using var crop = await _ocr.CropAndScaleAsync(bitmap, bounds, 1.0);

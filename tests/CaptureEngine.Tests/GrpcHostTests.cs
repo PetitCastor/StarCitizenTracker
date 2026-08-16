@@ -190,6 +190,15 @@ public class GrpcHostTests
             Assert.True(File.Exists(dump.Path));
             Assert.Equal(outputDir, Path.GetDirectoryName(dump.Path));
             Assert.StartsWith("smoke_", Path.GetFileName(dump.Path));
+
+            // The crop path used to reimplement RoiScaler.ToFrame directly and skip the off-frame
+            // guard ReadOneAsync enforces, so a bad crop rect silently saved a meaningless 1-pixel
+            // sliver instead of failing — exactly the "wrong but plausible" outcome the guard exists
+            // to prevent. It must reject the same way DumpFrame(full_frame) never has to.
+            var ex = await Assert.ThrowsAsync<RpcException>(() => client.DumpFrameAsync(
+                new DumpFrameRequest { FullFrame = false, Roi = EngineTestFixtures.OffFrameRoi().Rect, Prefix = "bad-crop" },
+                cancellationToken: cts.Token).ResponseAsync);
+            Assert.Equal(StatusCode.Unknown, ex.StatusCode);
         }
         finally
         {
