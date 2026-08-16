@@ -11,8 +11,10 @@ sink.WriteLine("=== Star Citizen Tracker — Capture Engine ===");
 var config = EngineConfig.Load(Path.Combine(AppContext.BaseDirectory, "engine-config.json"));
 
 // CLI: --pipe <name>, --ocr-lang <bcp47>, --monitor <index> (each overrides config),
-//      --replay <dir> (feed saved PNGs through the engine instead of live capture), --verbose
+//      --replay <dir> (feed saved PNGs through the engine instead of live capture),
+//      --save-frames (save full-frame PNG on manual trigger), --verbose
 var verbose = args.Contains("--verbose", StringComparer.OrdinalIgnoreCase);
+var saveFrames = args.Contains("--save-frames", StringComparer.OrdinalIgnoreCase);
 
 string? ArgValue(string name) => args
     .Select((a, i) => (a, i))
@@ -41,6 +43,12 @@ var replayDir = ArgValue("--replay");
 if (replayDir is not null && !Directory.Exists(replayDir))
 {
     Console.Error.WriteLine($"Replay directory not found: {replayDir}");
+    return 1;
+}
+
+if (saveFrames && replayDir is not null)
+{
+    Console.Error.WriteLine("--save-frames cannot be combined with --replay.");
     return 1;
 }
 
@@ -113,6 +121,7 @@ sink.WriteLine($"OCR:       {ocr.Language}{(otherOcrPacks.Length > 0
     ? $" — also installed: {string.Join(", ", otherOcrPacks)}"
     : "")}");
 sink.WriteLine($"Dumps:     {config.OutputDir}");
+sink.WriteLine($"SaveFrames: {(saveFrames ? "on" : "off")}");
 sink.WriteLine($"Verbose:   {(verbose ? "on" : "off")}");
 
 using var cts = new CancellationTokenSource();
@@ -128,8 +137,23 @@ MetricsReporter? metrics = null;
 if (replayDir is null)
 {
     var (modifiers, virtualKey) = HotkeyListener.ParseHotkey(config.Hotkey);
-    hotkey = new HotkeyListener(modifiers, virtualKey, engine.ScanLoop.TriggerManual);
-    sink.WriteLine($"Hotkey:    {config.Hotkey} (manual trigger)");
+    Action onHotkey;
+    if (saveFrames)
+    {
+        var frameDumper = new FrameDumpService(config.OutputDir, sink);
+        onHotkey = () =>
+        {
+            engine.ScanLoop.TriggerManual();
+            _ = frameDumper.DumpRetainedAsync(engine.ScanLoop);
+        };
+    }
+    else
+    {
+        onHotkey = engine.ScanLoop.TriggerManual;
+    }
+
+    hotkey = new HotkeyListener(modifiers, virtualKey, onHotkey);
+    sink.WriteLine($"Hotkey:    {config.Hotkey} (manual trigger{(saveFrames ? " + save frame" : "")})");
     sink.WriteLine($"Metrics:   {(config.MetricsEnabled ? $"live status bar every {config.MetricsIntervalMs} ms" : "disabled")}");
 }
 

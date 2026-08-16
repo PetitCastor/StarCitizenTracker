@@ -38,10 +38,11 @@
   </ItemGroup>
 
   <!-- Every replay corpus this suite drives: Fixtures/engine-smoke for the scan-loop tests, and
-       Fixtures/Replay/** — the corpora inherited from the monolith when it was retired — for the
-       parity tests. Copied next to the test assembly so the relative paths resolve at run time. -->
+       the shared fixtures in tests/fixtures/corpus/** for the parity tests. Copied next to the test
+       assembly so the relative paths resolve at run time. -->
   <ItemGroup>
     <None Include="Fixtures\**\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\fixtures\corpus\**\*.png" Link="Fixtures\Replay\%(RecursiveDir)%(FileName)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
