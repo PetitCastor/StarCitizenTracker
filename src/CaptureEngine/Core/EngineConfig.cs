@@ -49,15 +49,17 @@ public sealed class EngineConfig
     /// </summary>
     public static EngineConfig Load(string path)
     {
+        EngineConfig config;
         if (!File.Exists(path))
         {
-            var defaults = new EngineConfig();
-            File.WriteAllText(path, JsonSerializer.Serialize(defaults, JsonOptions));
-            return defaults;
+            config = new EngineConfig();
+            File.WriteAllText(path, JsonSerializer.Serialize(config, JsonOptions));
         }
-
-        var config = JsonSerializer.Deserialize<EngineConfig>(File.ReadAllText(path), JsonOptions)
+        else
+        {
+            config = JsonSerializer.Deserialize<EngineConfig>(File.ReadAllText(path), JsonOptions)
                      ?? new EngineConfig();
+        }
 
         if (!Path.IsPathRooted(config.OutputDir))
             config.OutputDir = Path.GetFullPath(config.OutputDir, Path.GetDirectoryName(path)!);

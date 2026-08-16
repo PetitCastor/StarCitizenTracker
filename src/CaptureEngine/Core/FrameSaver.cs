@@ -1,3 +1,7 @@
+// TRANSITIONAL DUPLICATE of src/TrackingService/Core/FrameSaver.cs, byte-identical apart from
+// the namespace. Nothing references this copy yet — the engine picks it up in ENGINE-SPLIT
+// TASK-3, and TASK-8 deletes the monolith's copy in favour of it. Until then both are live and
+// must be edited together. No parity test: this is disk I/O with no pure logic to assert on.
 using Windows.Graphics.Capture;
 using Windows.Graphics.Imaging;
 

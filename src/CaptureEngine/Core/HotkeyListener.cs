@@ -1,3 +1,8 @@
+// TRANSITIONAL DUPLICATE of src/TrackingService/Core/HotkeyListener.cs, byte-identical apart
+// from the namespace. Nothing references this copy yet — the engine picks it up in
+// ENGINE-SPLIT TASK-3, and TASK-8 deletes the monolith's copy in favour of it. Until then both
+// are live and must be edited together. tests/CaptureEngine.Tests/HotkeyListenerParseHotkeyTests.cs
+// mirrors the monolith's assertions to catch drift.
 using System.Runtime.InteropServices;
 
 namespace CaptureEngine;

@@ -22,18 +22,21 @@ public class GrpcHostTests
     /// its own, so the channel dials "localhost" over an HTTP handler whose connections are
     /// actually named-pipe streams.
     /// </summary>
-    private static GrpcChannel ConnectTo(string pipeName)
+    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(5);
+
+    private static GrpcChannel ConnectTo(string pipeName, CancellationToken ct)
     {
         var handler = new SocketsHttpHandler
         {
-            ConnectCallback = async (_, ct) =>
+            ConnectCallback = async (_, callbackCt) =>
             {
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(callbackCt, ct);
                 var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut,
                     PipeOptions.WriteThrough | PipeOptions.Asynchronous,
                     TokenImpersonationLevel.Anonymous);
                 try
                 {
-                    await pipe.ConnectAsync(ct);
+                    await pipe.ConnectAsync(linked.Token);
                     return pipe;
                 }
                 catch
@@ -60,10 +63,15 @@ public class GrpcHostTests
 
         try
         {
-            using var channel = ConnectTo(pipeName);
+            // If the server ever fails to bind the pipe (the regression this test exists to
+            // catch), the connect/RPC must fail fast instead of hanging until the runner
+            // timeout swallows the red result.
+            using var cts = new CancellationTokenSource(TestTimeout);
+            using var channel = ConnectTo(pipeName, cts.Token);
             var client = new CaptureEngineService.CaptureEngineServiceClient(channel);
 
-            var response = await client.GetStatusAsync(new StatusRequest());
+            var response = await client.GetStatusAsync(new StatusRequest(),
+                deadline: DateTime.UtcNow.Add(TestTimeout), cancellationToken: cts.Token);
 
             Assert.NotEmpty(response.EngineVersion);
             Assert.Equal("en-US", response.OcrLanguage);

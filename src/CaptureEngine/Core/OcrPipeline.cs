@@ -14,6 +14,9 @@ namespace CaptureEngine;
 /// </summary>
 public sealed class OcrPipeline
 {
+    /// <summary>Name of the engine's config file, for the OCR-pack-missing error message.</summary>
+    private const string ConfigFileName = "engine-config.json";
+
     private readonly OcrEngine _engine;
 
     /// <param name="languageTag">
@@ -64,7 +67,7 @@ public sealed class OcrPipeline
     private static string DescribeInstalled(IReadOnlyList<string> installed) =>
         (installed.Count == 0
             ? "No OCR packs are installed at all."
-            : $"Installed: {string.Join(", ", installed)}. Set \"ocrLanguage\" in config.json (or --ocr-lang) to one of these.")
+            : $"Installed: {string.Join(", ", installed)}. Set \"ocrLanguage\" in {ConfigFileName} (or --ocr-lang) to one of these.")
         + " Packs are added under Settings > Time & language > Language & region >"
         + " <language> > Language options > Optional language features.";
 
@@ -91,8 +94,12 @@ public sealed class OcrPipeline
     /// </summary>
     public async Task<OcrRegionResult> ReadRegionDetailedAsync(SoftwareBitmap frame, BitmapBounds roi, double scale)
     {
-        var effective = EffectiveScale(roi, scale);
-        using var crop = await CropAndScaleAsync(frame, roi, scale);
+        // Clamp before computing frame_rect/effective_scale, not just before cropping: both are
+        // reported to callers as "what was actually read" (capture.proto), so an out-of-frame
+        // plugin rect must not leak unclamped bounds into ToFramePoint's coordinate mapping.
+        var clamped = ClampToBitmap(roi, frame.PixelWidth, frame.PixelHeight);
+        var effective = EffectiveScale(clamped, scale);
+        using var crop = await CropAndScaleAsync(frame, clamped, scale);
         var result = await _engine.RecognizeAsync(crop);
 
         var lines = new List<OcrLineInfo>(result.Lines.Count);
@@ -107,7 +114,7 @@ public sealed class OcrPipeline
             lines.Add(new OcrLineInfo(line.Text, words));
         }
 
-        return new OcrRegionResult(result.Text, lines, effective, roi.X, roi.Y, roi.Width, roi.Height);
+        return new OcrRegionResult(result.Text, lines, effective, clamped.X, clamped.Y, clamped.Width, clamped.Height);
     }
 
     /// <summary>The scale actually applied after clamping to the OCR engine's max dimension.</summary>

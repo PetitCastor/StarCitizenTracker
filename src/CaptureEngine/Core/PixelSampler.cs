@@ -1,3 +1,8 @@
+// TRANSITIONAL DUPLICATE of src/TrackingService/Core/PixelSampler.cs, byte-identical apart from
+// the namespace. Nothing references this copy yet — the engine picks it up in ENGINE-SPLIT
+// TASK-3, and TASK-8 deletes the monolith's copy in favour of it. Until then both are live and
+// must be edited together. No parity test: AveragePatch needs a real SoftwareBitmap crop to
+// exercise, which the monolith's suite doesn't cover in isolation either.
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
 

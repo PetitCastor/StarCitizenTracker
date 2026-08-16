@@ -20,7 +20,10 @@ public sealed class EngineStatus
         ?? "0.0.0";
 
     private readonly Lock _gate = new();
-    private readonly SortedSet<string> _clients = new(StringComparer.Ordinal);
+
+    // Keyed by connection id, not client_name: two instances sharing a name must not collapse
+    // into one entry, and one disconnecting must not drop the other's.
+    private readonly Dictionary<string, string> _clients = new(StringComparer.Ordinal);
 
     private uint _frameWidth;
     private uint _frameHeight;
@@ -49,17 +52,17 @@ public sealed class EngineStatus
         }
     }
 
-    /// <summary>Registers a connected plugin by the name it sent in its Hello.</summary>
-    public void AddClient(string clientName)
+    /// <summary>Registers a connected plugin under its connection id, reporting the name it sent in its Hello.</summary>
+    public void AddClient(string connectionId, string clientName)
     {
         lock (_gate)
-            _clients.Add(clientName);
+            _clients[connectionId] = clientName;
     }
 
-    public void RemoveClient(string clientName)
+    public void RemoveClient(string connectionId)
     {
         lock (_gate)
-            _clients.Remove(clientName);
+            _clients.Remove(connectionId);
     }
 
     public StatusResponse Snapshot()
@@ -76,7 +79,7 @@ public sealed class EngineStatus
             response.FrameWidth = _frameWidth;
             response.FrameHeight = _frameHeight;
             response.FrameSeq = _frameSeq;
-            response.ConnectedClients.AddRange(_clients);
+            response.ConnectedClients.AddRange(_clients.Values.OrderBy(n => n, StringComparer.Ordinal));
         }
 
         return response;

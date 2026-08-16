@@ -1,3 +1,7 @@
+// TRANSITIONAL DUPLICATE of src/TrackingService/Core/CaptureInterop.cs, byte-identical apart
+// from the namespace. Nothing references this copy yet — the engine picks it up in
+// ENGINE-SPLIT TASK-3, and TASK-8 deletes the monolith's copy in favour of it. Until then both
+// are live and must be edited together. No parity test: raw COM/D3D interop needs a live device.
 using System.Runtime.InteropServices;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX.Direct3D11;

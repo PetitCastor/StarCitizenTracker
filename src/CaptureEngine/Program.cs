@@ -21,6 +21,11 @@ string? ArgValue(string name) => args
     .FirstOrDefault();
 
 var pipeName = ArgValue("--pipe") ?? config.PipeName;
+if (string.IsNullOrWhiteSpace(pipeName))
+{
+    Console.Error.WriteLine("Pipe name must not be blank (set \"pipeName\" in engine-config.json or pass --pipe).");
+    return 1;
+}
 
 if (ArgValue("--monitor") is { } monitorArg)
 {
@@ -47,7 +52,18 @@ catch (InvalidOperationException ex)
 var status = new EngineStatus(ocr.LanguageTag, replayMode: false);
 
 var app = GrpcHost.BuildGrpcHost(pipeName, status);
-await app.StartAsync();
+
+// Same fail-with-a-message contract as the OCR pack check above: a pipe name collision
+// (second instance already bound, or an invalid name) is user error, not a bug.
+try
+{
+    await app.StartAsync();
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine($"Failed to start on pipe '{pipeName}': {ex.Message}");
+    return 1;
+}
 
 sink.WriteLine($"Pipe:      {pipeName}");
 sink.WriteLine($"Monitor:   index {config.MonitorIndex} (capture starts in TASK-3)");

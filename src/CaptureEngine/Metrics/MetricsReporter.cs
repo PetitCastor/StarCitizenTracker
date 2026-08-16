@@ -1,3 +1,9 @@
+// TRANSITIONAL DUPLICATE of src/TrackingService/Metrics/MetricsReporter.cs, identical apart
+// from the namespace and the added `using Common;` (ConsoleSink lives in that namespace here).
+// Nothing references this copy yet — the engine picks it up in
+// ENGINE-SPLIT TASK-3, and TASK-8 deletes the monolith's copy in favour of it. Until then both
+// are live and must be edited together. No parity test: this is a timer/sink wiring class with
+// no pure logic to assert on in isolation.
 using Common;
 
 namespace CaptureEngine.Metrics;
