@@ -24,6 +24,10 @@
        the real transport without a second process. -->
   <ItemGroup>
     <InternalsVisibleTo Include="CaptureEngine.Tests" />
+    <!-- Plugin suites build ticks from the wire type the engine would have sent, which is what
+         TickData.From maps: the alternative is a public factory that exists only for tests and
+         that a plugin could then call in production code. -->
+    <InternalsVisibleTo Include="MissionPlugin.Tests" />
   </ItemGroup>
 
 </Project>
