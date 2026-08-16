@@ -1,6 +1,5 @@
 using CaptureContracts;
 using Common;
-using Grpc.Core;
 using RefineryPlugin;
 using RefineryPlugin.Orders;
 using TrackerSdk;
@@ -72,7 +71,6 @@ void Emit(TrackerRecord record)
 // handed --replay, and now only the engine knows it is replaying. A later reconnect keeps the file
 // the run started with, the same way the logic keeps its panel state across one.
 OrderLedger? ledger = null;
-RefineryLogic? logic = null;
 var ledgerPath = "";
 
 void WriteLedgerSummary()
@@ -107,115 +105,30 @@ sink.WriteLine($"Pipe:      {pipeName}");
 sink.WriteLine($"Debug:     {(config.SaveDebugFrames ? "asking the engine for a completed-panel PNG per order" : "in-memory only, no files")}");
 sink.WriteLine();
 
-// WaitForEngineAsync needs a finite budget: Timeout.InfiniteTimeSpan is negative and would go
-// straight to its timeout branch, and TimeSpan.MaxValue overflows the RPC deadline. A day is
-// "forever" for a plugin left running — the loop below retries anyway, and cancellation, not
-// this, is what ends the wait.
-var engineWait = TimeSpan.FromDays(1);
-
-// Breathing room between a lost session and the next dial; see the RpcException branch below.
-var reconnectDelay = TimeSpan.FromMilliseconds(500);
-
-// Announced once per disconnected stretch rather than per retry: a plugin started before the
-// engine would otherwise scroll the same line every few seconds.
-var announcedWait = false;
-
-while (true)
+// The connect / subscribe / consume loop lives in RefineryRunner so the replay-parity tests can
+// drive the same path this process does. The ledger is opened from inside it, on the first
+// successful connect: only the engine knows whether it is replaying a corpus, and a replay must
+// never append to the user's real orders.jsonl (the monolith redirected the same way when it was
+// handed --replay). An explicit --ledger still wins — that is how the parity harness points a
+// replay at a file it can read afterwards.
+await RefineryRunner.RunAsync(client, pipeName, status =>
 {
-    if (!announcedWait)
-    {
-        sink.WriteLine($"waiting for engine on pipe '{pipeName}'...");
-        announcedWait = true;
-    }
+    var throwaway = status.ReplayMode || !config.LedgerEnabled;
+    ledgerPath = ledgerOverride ?? (throwaway
+        ? Path.Combine(Path.GetTempPath(),
+            $"sc-tracker-{(status.ReplayMode ? "replay" : "ephemeral")}-{Guid.NewGuid():N}.jsonl")
+        : config.LedgerPath);
 
-    try
-    {
-        var status = await client.WaitForEngineAsync(engineWait, cts.Token);
-        announcedWait = false;
+    ledger = new OrderLedger(ledgerPath, sink.WriteLine);
+    ledger.Load();
 
-        if (logic is null)
-        {
-            // Replay and a disabled ledger both write to a throwaway temp file, so neither a
-            // corpus run nor a smoke run can touch the real orders.jsonl. An explicit --ledger
-            // still wins: that is how the parity harness points a replay at a file it can read.
-            var throwaway = status.ReplayMode || !config.LedgerEnabled;
-            ledgerPath = ledgerOverride ?? (throwaway
-                ? Path.Combine(Path.GetTempPath(),
-                    $"sc-tracker-{(status.ReplayMode ? "replay" : "ephemeral")}-{Guid.NewGuid():N}.jsonl")
-                : config.LedgerPath);
+    var ledgerNote = ledgerOverride is not null || !throwaway
+        ? ""
+        : status.ReplayMode ? " (replay — throwaway file)" : " (ledger disabled — throwaway file)";
+    sink.WriteLine($"Ledger:    {ledgerPath}{ledgerNote}");
 
-            ledger = new OrderLedger(ledgerPath, sink.WriteLine);
-            ledger.Load();
-            logic = new RefineryLogic(Emit, sink, verbose, dumpFrame, ledger);
-
-            var ledgerNote = ledgerOverride is not null || !throwaway
-                ? ""
-                : status.ReplayMode ? " (replay — throwaway file)" : " (ledger disabled — throwaway file)";
-            sink.WriteLine($"Ledger:    {ledgerPath}{ledgerNote}");
-        }
-
-        await using var session = await client.TrackAsync(RefineryLogic.Name, Rois.All, cts.Token);
-
-        sink.WriteLine($"Engine:    {status.EngineVersion}{(status.ReplayMode ? " (replay)" : "")}");
-        sink.WriteLine($"Frame:     {(status.FrameWidth == 0
-            ? "no frame scanned yet"
-            : $"{status.FrameWidth}x{status.FrameHeight}")}");
-        sink.WriteLine($"ROIs:      {string.Join(", ", Rois.All.Select(r => r.Id))}");
-        sink.WriteLine();
-        sink.WriteLine("Running. Ctrl+C to quit.");
-        sink.WriteLine();
-
-        await foreach (var tick in session.Ticks(cts.Token))
-        {
-            // As TrackerHost did per tracker: one bad tick must not end the run. A genuine
-            // transport failure is not swallowed — the next read from the stream raises it
-            // again and the reconnect below handles it.
-            try
-            {
-                await logic.OnTickAsync(tick, cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                sink.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {RefineryLogic.Name}: tick failed: {ex.Message}");
-            }
-        }
-    }
-    catch (OperationCanceledException)
-    {
-        break; // our own Ctrl+C: the channel maps a cancelled call to this, not RpcException
-    }
-    catch (RpcException) when (cts.IsCancellationRequested)
-    {
-        // Ctrl+C again: the channel's OCE mapping covers the call, but a write already in flight
-        // on the request stream can still surface as CANCELLED. Not an engine failure.
-        break;
-    }
-    catch (TimeoutException)
-    {
-        continue; // engine still not serving; the line above already says we are waiting
-    }
-    catch (RpcException)
-    {
-        // The engine went away mid-session. Reconnecting means a fresh subscription, and the
-        // logic's panel state is deliberately kept: the ledger merges idempotently, so a panel
-        // still on screen after the reconnect re-observes into the same record.
-        sink.WriteLine("engine connection lost — reconnecting");
-
-        // Paced: WaitForEngineAsync returns immediately whenever GetStatus answers, so an engine
-        // that is up but cannot serve a Track stream (mid-shutdown, for one) would otherwise spin
-        // this loop with no delay at all.
-        try { await Task.Delay(reconnectDelay, cts.Token); }
-        catch (OperationCanceledException) { break; }
-
-        continue;
-    }
-
-    break; // stream ended normally (engine replay finished or shutdown)
-}
+    return new RefineryLogic(Emit, sink, verbose, dumpFrame, ledger);
+}, sink, cts.Token);
 
 sink.WriteLine();
 sink.WriteLine($"=== Summary: {records.Count} captures ===");

@@ -32,6 +32,18 @@
     <!-- The SDK is driven against the in-proc engine here: this is the only project that can own
          both ends of the pipe, so the client's own tests live with the engine's. -->
     <ProjectReference Include="..\..\src\TrackerSdk\TrackerSdk.csproj" />
+    <!-- Same reason for the plugin: the replay-parity tests run engine + SDK + RefineryLogic in
+         one process and assert the monolith's fixture outcomes still come out the far end. -->
+    <ProjectReference Include="..\..\src\Plugins\RefineryPlugin\RefineryPlugin.csproj" />
+  </ItemGroup>
+
+  <!-- The monolith's replay corpora, copied next to this assembly so the parity tests replay the
+       very same PNGs its integration tests assert on. Linked rather than duplicated on disk: two
+       copies of a corpus would drift, and the whole point is that both suites see one corpus. -->
+  <ItemGroup>
+    <Content Include="..\TrackingService.Tests\Fixtures\Replay\**\*.png"
+             Link="Fixtures\Replay\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Replay corpus for the scan-loop tests: copied next to the test assembly so the relative
