@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Plain net10.0, deliberately: this is the library every plugin references, and a Windows
+       TFM here would let a WinRT type leak into a plugin and quietly re-couple it to the
+       capture stack the split exists to isolate. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CaptureContracts\CaptureContracts.csproj" />
+  </ItemGroup>
+
+  <!-- Google.Protobuf and Grpc.Core.Api arrive transitively via CaptureContracts; this adds the
+       client-side channel implementation the generated stub needs. -->
+  <ItemGroup>
+    <PackageReference Include="Grpc.Net.Client" Version="2.83.0" />
+  </ItemGroup>
+
+  <!-- The SDK is exercised end to end from the engine test project (TASK-4 and TASK-7): those
+       tests own an in-proc engine, so they are the only place the client can be driven against
+       the real transport without a second process. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="CaptureEngine.Tests" />
+  </ItemGroup>
+
+</Project>

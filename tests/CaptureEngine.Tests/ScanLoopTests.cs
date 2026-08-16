@@ -128,4 +128,37 @@ public class ScanLoopTests
             Assert.Empty(bad.Text);
         }
     }
+
+    /// <summary>
+    /// One plugin leaving mid-replay must not end the run for the others. Replay writes are
+    /// awaited rather than dropped — determinism is the point of a corpus run — and an awaited
+    /// write to a completed channel throws, which is not the cancellation the loop's handler
+    /// expects: it would escape RunAsync and take every client's run down with it, mid-corpus.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_WhenOneClientChannelIsClosed_KeepsServingTheRest()
+    {
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var sink = new ConsoleSink();
+        var harness = NewHarness(sink);
+        using var source = harness.Source;
+        using var loop = harness.Loop;
+
+        var rois = new RoiSetUpdate { Rois = { EngineTestFixtures.PanelStateRoi() } };
+
+        var departing = harness.Registry.Register(replayMode: true);
+        departing.SetRois(rois);
+
+        var staying = harness.Registry.Register(replayMode: true);
+        staying.SetRois(rois);
+
+        // Exactly the state a plugin's DisposeAsync leaves behind: its channel is completed while
+        // the loop may still be holding a snapshot taken before it was unregistered.
+        departing.Out.Writer.TryComplete();
+
+        var ticks = await RunAndCollectAsync(harness, staying, cts.Token);
+
+        Assert.Equal(source.FrameCount, ticks.Count);
+        Assert.True(staying.Out.Reader.Completion.IsCompletedSuccessfully);
+    }
 }

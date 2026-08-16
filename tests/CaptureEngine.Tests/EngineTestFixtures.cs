@@ -1,4 +1,5 @@
 using CaptureContracts.Proto;
+using TrackerSdk;
 
 namespace CaptureEngine.Tests;
 
@@ -39,9 +40,20 @@ internal static class EngineTestFixtures
         Mode = RoiMode.Text,
     };
 
-    public static string[] ExpectedFrameNames() => Directory
-        .GetFiles(ReplayDir, "*.png")
-        .OrderBy(f => f, StringComparer.Ordinal)
+    /// <summary>
+    /// The same ROIs as the SDK expresses them. Derived from the proto factories above rather than
+    /// restated, so an engine test and an SDK test can never drift into asserting different
+    /// geometry while both claim to use "the panel ROI".
+    /// </summary>
+    public static RoiSubscription PanelStateSubscription(string id = "panel")
+        => RoiSubscription.FromProto(PanelStateRoi(id));
+
+    public static RoiSubscription ToggleStripSubscription(string id = "toggle")
+        => RoiSubscription.FromProto(ToggleStripRoi(id));
+
+    /// <summary>Corpus frames in the order the scan loop will hand them out.</summary>
+    public static string[] ExpectedFrameNames() => ReplayFrameSource
+        .EnumerateCorpus(ReplayDir)
         .Select(Path.GetFileName)
         .ToArray()!;
 }

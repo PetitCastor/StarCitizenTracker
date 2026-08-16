@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CaptureContracts;
 
 namespace CaptureEngine;
 
@@ -25,7 +26,7 @@ public sealed class EngineConfig
     public string OcrLanguage { get; set; } = "";
 
     /// <summary>Named pipe the gRPC server listens on; plugins must use the same name.</summary>
-    public string PipeName { get; set; } = "StarCitizenTracker.CaptureEngine";
+    public string PipeName { get; set; } = PipeContract.DefaultPipeName;
 
     /// <summary>Scan cadence for the capture loop; values below 100 are clamped up at use.</summary>
     public int ScanIntervalMs { get; set; } = 500;

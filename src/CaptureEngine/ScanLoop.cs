@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using CaptureContracts;
 using CaptureContracts.Proto;
 using Common;
@@ -124,9 +125,19 @@ internal sealed class ScanLoop : IDisposable
 
                         var response = new TrackResponse { Tick = tick };
                         if (_source.IsReplay)
-                            await client.Out.Writer.WriteAsync(response, ct); // backpressure: determinism first
+                        {
+                            // Backpressure: determinism first. Unlike the live TryWrite, this
+                            // write can fail — a plugin that disposes its session (or dies) has
+                            // its channel completed by the registry, and the throw would escape
+                            // RunAsync's cancellation-only filter and end the run for EVERY
+                            // client, mid-corpus. The departed client is simply skipped.
+                            try { await client.Out.Writer.WriteAsync(response, ct); }
+                            catch (ChannelClosedException) { }
+                        }
                         else
-                            client.Out.Writer.TryWrite(response);             // DropOldest handles overflow
+                        {
+                            client.Out.Writer.TryWrite(response); // DropOldest handles overflow
+                        }
                     }
 
                     await SwapRetainedAsync(bitmap);
@@ -191,11 +202,13 @@ internal sealed class ScanLoop : IDisposable
             switch (spec.Mode)
             {
                 case RoiMode.Text:
+                    result.Kind = RoiResultKind.Text;
                     result.Text = await _ocr.ReadRegionAsync(bitmap, bounds, scale);
                     result.EffectiveScale = OcrPipeline.EffectiveScale(bounds, scale);
                     break;
 
                 case RoiMode.Detailed:
+                    result.Kind = RoiResultKind.Detailed;
                     // ReadRegionDetailedAsync treats the rect it is given as the ROI origin, and
                     // it is given FRAME-space bounds — which is exactly what frame_rect promises,
                     // so OcrRegionResult.ToFramePoint yields real frame pixels on the far side.
@@ -203,6 +216,7 @@ internal sealed class ScanLoop : IDisposable
                     break;
 
                 case RoiMode.Pixels:
+                    result.Kind = RoiResultKind.Pixels;
                     if (!WireLimits.FitsPixelBudget(bounds.Width, bounds.Height))
                         throw new ArgumentOutOfRangeException(nameof(spec),
                             $"PIXELS ROI {bounds.Width}x{bounds.Height} exceeds the " +

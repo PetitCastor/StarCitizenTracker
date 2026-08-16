@@ -1,11 +1,9 @@
-using System.IO.Pipes;
-using System.Security.Principal;
 using CaptureContracts.Proto;
 using CaptureEngine.Grpc;
 using Common;
 using Grpc.Core;
-using Grpc.Net.Client;
 using Microsoft.AspNetCore.Builder;
+using TrackerSdk;
 using Xunit;
 
 namespace CaptureEngine.Tests;
@@ -22,37 +20,6 @@ public class GrpcHostTests
 
     /// <summary>Generous: the round-trip test OCRs the whole fixture corpus over the pipe.</summary>
     private static readonly TimeSpan TrackTimeout = TimeSpan.FromMinutes(2);
-
-    /// <summary>
-    /// Same ConnectCallback shape the SDK will use in TASK-4: gRPC has no pipe transport of
-    /// its own, so the channel dials "localhost" over an HTTP handler whose connections are
-    /// actually named-pipe streams.
-    /// </summary>
-    private static GrpcChannel ConnectTo(string pipeName, CancellationToken ct)
-    {
-        var handler = new SocketsHttpHandler
-        {
-            ConnectCallback = async (_, callbackCt) =>
-            {
-                using var linked = CancellationTokenSource.CreateLinkedTokenSource(callbackCt, ct);
-                var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut,
-                    PipeOptions.WriteThrough | PipeOptions.Asynchronous,
-                    TokenImpersonationLevel.Anonymous);
-                try
-                {
-                    await pipe.ConnectAsync(linked.Token);
-                    return pipe;
-                }
-                catch
-                {
-                    await pipe.DisposeAsync();
-                    throw;
-                }
-            },
-        };
-
-        return GrpcChannel.ForAddress("http://localhost", new GrpcChannelOptions { HttpHandler = handler });
-    }
 
     // Unique per run: a leftover pipe from a crashed run would otherwise be answered by the
     // wrong process and the test would assert against a stranger.
@@ -82,7 +49,7 @@ public class GrpcHostTests
             // catch), the connect/RPC must fail fast instead of hanging until the runner
             // timeout swallows the red result.
             using var cts = new CancellationTokenSource(TestTimeout);
-            using var channel = ConnectTo(pipeName, cts.Token);
+            using var channel = NamedPipeChannel.Create(pipeName);
             var client = new CaptureEngineService.CaptureEngineServiceClient(channel);
 
             var response = await client.GetStatusAsync(new StatusRequest(),
@@ -130,7 +97,7 @@ public class GrpcHostTests
 
         try
         {
-            using var channel = ConnectTo(pipeName, cts.Token);
+            using var channel = NamedPipeChannel.Create(pipeName);
             var client = new CaptureEngineService.CaptureEngineServiceClient(channel);
 
             using var call = client.Track(cancellationToken: cts.Token);
