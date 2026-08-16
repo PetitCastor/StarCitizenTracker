@@ -29,47 +29,15 @@ jobs:
           latest=$(git tag -l 'v0.*.0' | sed -E 's/^v0\.([0-9]+)\.0$/\1/' | sort -n | tail -1)
           latest=${latest:-0}
           next=$((latest + 1))
-          echo "VERSION=0.$next.0" >> "$GITHUB_ENV"
-          echo "TAG=v0.$next.0" >> "$GITHUB_ENV"
+          echo "VERSION=v0.$next.0" >> "$GITHUB_ENV"
 
-      # Three exes now, not one: the engine owns capture/OCR and each plugin is its own process.
-      # Published to separate folders because single-file publishes of different projects would
-      # otherwise fight over the shared runtime files landing in one output directory.
       - name: Publish CaptureEngine
-        run: >
-          dotnet publish src/CaptureEngine/CaptureEngine.csproj
-          -c Release -r win-x64 --self-contained true
-          -p:PublishSingleFile=true
-          -p:IncludeNativeLibrariesForSelfExtract=true
-          -p:Version=${{ env.VERSION }}
-          -o publish/CaptureEngine
+        run: dotnet publish src/CaptureEngine -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish/engine
 
-      - name: Publish MissionPlugin
-        run: >
-          dotnet publish src/Plugins/MissionPlugin/MissionPlugin.csproj
-          -c Release -r win-x64 --self-contained true
-          -p:PublishSingleFile=true
-          -p:IncludeNativeLibrariesForSelfExtract=true
-          -p:Version=${{ env.VERSION }}
-          -o publish/MissionPlugin
-
-      - name: Publish RefineryPlugin
-        run: >
-          dotnet publish src/Plugins/RefineryPlugin/RefineryPlugin.csproj
-          -c Release -r win-x64 --self-contained true
-          -p:PublishSingleFile=true
-          -p:IncludeNativeLibrariesForSelfExtract=true
-          -p:Version=${{ env.VERSION }}
-          -o publish/RefineryPlugin
+      - name: Archive CaptureEngine
+        run: Compress-Archive publish/engine/* CaptureEngine-${env:VERSION}-win-x64.zip
 
       - name: Create release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >
-          gh release create "${{ env.TAG }}"
-          "publish/CaptureEngine/CaptureEngine.exe"
-          "publish/MissionPlugin/MissionPlugin.exe"
-          "publish/RefineryPlugin/RefineryPlugin.exe"
-          --title "${{ env.TAG }}"
-          --generate-notes
-          --target ${{ github.sha }}
+        run: gh release create $env:VERSION CaptureEngine-*.zip --generate-notes
