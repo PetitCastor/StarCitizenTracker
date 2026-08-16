@@ -106,11 +106,31 @@ internal static class ProtocolNegotiation
     }
 
     /// <summary>
-    /// Maps a gRPC failure to the SDK's exception surface. The protocol arm is checked first and by
-    /// trailers rather than by status alone, because FAILED_PRECONDITION is a status any future
-    /// handler could return for its own reasons — only the range trailers say the handshake is what
-    /// was refused.
+    /// True when a failure is the engine refusing the announced protocol version. Keyed on the
+    /// trailers and not on the status alone: FAILED_PRECONDITION is a status any future handler
+    /// could return for its own reasons, and only the range trailers say the handshake is what was
+    /// refused.
     /// </summary>
+    /// <remarks>
+    /// This is the one gRPC failure the SDK re-types today. Everything else still reaches plugins
+    /// as an <see cref="RpcException"/>, because that is what their reconnect loops catch — see the
+    /// remark on <see cref="TrackSession.ReceiveHelloAckAsync"/>.
+    /// </remarks>
+    internal static bool IsProtocolRejection(RpcException ex)
+        => ex.StatusCode == StatusCode.FailedPrecondition && TryReadRange(ex, out _, out _);
+
+    /// <summary>
+    /// Maps a gRPC failure to the SDK's exception surface. The protocol arm is checked first and by
+    /// trailers rather than by status alone, for the reason given on
+    /// <see cref="IsProtocolRejection"/>.
+    /// </summary>
+    /// <remarks>
+    /// Only the protocol arm is wired to a transport path today; the rest exists for the plugin
+    /// host (SOW-3 / TASK-07), which is the first caller that will own a reconnect policy of its
+    /// own. That caller must decide whether the call was cancelled BEFORE calling this: a
+    /// cancellation reaches gRPC as <see cref="StatusCode.Cancelled"/> and would fall to the
+    /// default arm, reporting an orderly shutdown as a faulted session.
+    /// </remarks>
     internal static TrackerSdkException Translate(RpcException ex, uint sdkVersion) => ex.StatusCode switch
     {
         StatusCode.FailedPrecondition when TryReadRange(ex, out var min, out var max)
