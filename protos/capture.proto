@@ -163,8 +163,15 @@ message TrackResponse {
 message HelloAck {
   uint32 negotiated_protocol_version = 1;
   string engine_version = 2;
-  uint32 frame_width = 3;  // current frame dims so plugin needn't wait for first tick
+
+  // Frame dimensions as of the handshake, so a plugin can size its geometry without waiting for
+  // the first tick. Both are 0 when the engine has not captured a frame yet — the ordinary case
+  // for a plugin that connects as the engine starts, since CaptureClient.WaitForEngineAsync polls
+  // it up as fast as the pipe allows. 0 means UNKNOWN, not a 0x0 screen: a client must fall back
+  // to the dimensions on the first tick rather than scale anything against it.
+  uint32 frame_width = 3;
   uint32 frame_height = 4;
+
   bool replay_mode = 5;
 }
 

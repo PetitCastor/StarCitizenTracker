@@ -45,7 +45,7 @@ internal sealed class ClientConnection
             // because a dropped frame changes the outcome and determinism is the whole point.
             FullMode = replayMode ? BoundedChannelFullMode.Wait : BoundedChannelFullMode.DropOldest,
             SingleReader = true, // the Track response writer
-            SingleWriter = false, // the request pump sends HelloAck; the scan loop sends ticks
+            SingleWriter = true, // the scan loop
         });
     }
 
