@@ -1,0 +1,35 @@
+version: v2
+
+# One module: the wire contract between the engine and every plugin. It is generated into C# by
+# Grpc.Tools at build time, so `dotnet build` already tells us the file parses — what it cannot tell
+# us is whether a change to it silently breaks a plugin that ships separately. That is this file's
+# job.
+modules:
+  - path: protos
+
+lint:
+  use: [STANDARD]
+  # Every exception here is a name that predates buf, and every fix would be a rename — which is
+  # exactly the kind of change this config exists to stop. Adding a rule here is only legitimate for
+  # a symbol that already shipped; new symbols are expected to satisfy STANDARD.
+  #
+  #   PACKAGE_VERSION_SUFFIX / PACKAGE_DIRECTORY_MATCH — package `capture` in protos/capture.proto,
+  #     rather than `capture.v1` in protos/capture/v1/. Renaming it rewrites csharp_namespace and
+  #     every generated type reference on both sides of the boundary.
+  #   RPC_REQUEST_STANDARD_NAME / RPC_RESPONSE_STANDARD_NAME — GetStatus takes StatusRequest and
+  #     returns StatusResponse; the SDK's public GetStatusAsync hands StatusResponse to plugins.
+  #   ENUM_ZERO_VALUE_SUFFIX — RoiMode's zero is ROI_MODE_TEXT, a real default and not "unspecified".
+  #     RoiResultKind, added later, does have an _UNSPECIFIED zero and stays covered by the rule
+  #     everywhere it matters; see the comment on it in capture.proto for why the two differ.
+  except:
+    - PACKAGE_VERSION_SUFFIX
+    - PACKAGE_DIRECTORY_MATCH
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_RESPONSE_STANDARD_NAME
+    - ENUM_ZERO_VALUE_SUFFIX
+
+breaking:
+  # Wire + JSON compatibility. FILE-level is the usual default, but it also forbids MOVING a message
+  # between files, which is a pure refactor for a single-module repo where every plugin consumes the
+  # generated C# rather than the .proto path.
+  use: [WIRE_JSON]

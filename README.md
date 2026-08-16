@@ -16,6 +16,11 @@ named-pipe gRPC, so a plugin cannot take down screen capture or another plugin.
 | `src/Common` | Shared configuration and console support. |
 | `tests` | Unit, integration, and replay-parity test projects. |
 
+The engine/plugin wire contract — transport, handshake, version policy, and the guarantees a plugin
+may rely on — is documented in [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Changes to
+`protos/capture.proto` are lint- and breaking-change-checked against `master` by the `proto-guard`
+CI job (`buf.yaml`).
+
 ## Build
 
 Build the complete solution from the repository root:
