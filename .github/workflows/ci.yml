@@ -57,7 +57,11 @@ jobs:
         run: git fetch --no-tags origin +refs/heads/master:refs/heads/master
 
       - name: Lint & breaking-change check
-        uses: bufbuild/buf-action@v1
+        # Action pinned to a commit SHA, not the floating v1 tag: the `version:` pin below only
+        # freezes the buf CLI, while a new v1.x action release can still re-default an input (the
+        # push/archive defaults noted below are the action's, not the CLI's) and turn a PR that
+        # changed nothing red. Both halves have to be frozen for the gate to be deterministic.
+        uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1.5.0
         with:
           # Pinned rather than floating: a buf release that adds a lint rule would otherwise turn a
           # green PR red without a change to this repo. Bump it deliberately.

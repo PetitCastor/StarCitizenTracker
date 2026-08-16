@@ -19,8 +19,10 @@ lint:
   #   RPC_REQUEST_STANDARD_NAME / RPC_RESPONSE_STANDARD_NAME — GetStatus takes StatusRequest and
   #     returns StatusResponse; the SDK's public GetStatusAsync hands StatusResponse to plugins.
   #   ENUM_ZERO_VALUE_SUFFIX — RoiMode's zero is ROI_MODE_TEXT, a real default and not "unspecified".
-  #     RoiResultKind, added later, does have an _UNSPECIFIED zero and stays covered by the rule
-  #     everywhere it matters; see the comment on it in capture.proto for why the two differ.
+  #     Note this one is off module-wide: `except` has no per-symbol scoping, and RoiResultKind lives
+  #     in the same file, so nothing mechanically stops a NEW enum from landing with a non-_UNSPECIFIED
+  #     zero. Until ROI_MODE_TEXT's slot is renamed, that rule is on reviewers, not on buf. See the
+  #     comment on RoiResultKind in capture.proto for why the two enums differ.
   except:
     - PACKAGE_VERSION_SUFFIX
     - PACKAGE_DIRECTORY_MATCH
@@ -29,7 +31,11 @@ lint:
     - ENUM_ZERO_VALUE_SUFFIX
 
 breaking:
-  # Wire + JSON compatibility. FILE-level is the usual default, but it also forbids MOVING a message
-  # between files, which is a pure refactor for a single-module repo where every plugin consumes the
-  # generated C# rather than the .proto path.
-  use: [WIRE_JSON]
+  # PACKAGE, not WIRE_JSON. WIRE/WIRE_JSON deliberately omit the *_NO_DELETE rules (MESSAGE, ENUM,
+  # SERVICE, RPC, ONEOF) because they cannot tell a deletion from a move they cannot see — so
+  # deleting `rpc DumpFrame`, dropping RoiSetUpdate, or renaming the package all pass, which is
+  # exactly the runtime UNIMPLEMENTED failure this job exists to catch. FILE would cover those but
+  # also forbids MOVING a message between files, a pure refactor for a single-module repo where
+  # every plugin consumes the generated C# rather than the .proto path. PACKAGE keeps every
+  # deletion and package-rename check while allowing types to move within the package.
+  use: [PACKAGE]
