@@ -36,7 +36,11 @@ public class ReplayParityTests(ITestOutputHelper output)
     /// <summary>The monolith's corpora, linked into this assembly's output by the csproj.</summary>
     private const string FixturesRoot = "Fixtures/Replay";
 
-    /// <summary>Real OCR over ~8 frames x 9 ROIs takes tens of seconds; this is the hang bound.</summary>
+    /// <summary>
+    /// A hang bound, not a performance budget: real OCR over these corpora measures 1-2s each, so
+    /// anything near this means something is stuck rather than slow. Deliberately far above the
+    /// measurement to stay quiet on a loaded CI box.
+    /// </summary>
     private static readonly TimeSpan TestTimeout = TimeSpan.FromMinutes(5);
 
     [Fact]
@@ -105,26 +109,61 @@ public class ReplayParityTests(ITestOutputHelper output)
                 source, sink, verbose: false);
             await engine.StartAsync(cts.Token);
 
+            // The loop's own stop signal, distinct from the client-side budget: the finally below
+            // has to be able to end the loop on a path where cts never fired.
+            using var scanCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+
             // Started before anyone subscribes: in replay the loop holds the corpus until a client
             // is ready, so no frame is burned before the plugin is listening.
-            var scan = engine.RunScanAsync(cts.Token);
+            var scan = engine.RunScanAsync(scanCts.Token);
 
-            ledger.Load();
+            try
+            {
+                ledger.Load();
 
-            using var client = new CaptureClient(pipeName);
+                using var client = new CaptureClient(pipeName);
 
-            // The plugin's own runner, not a hand-rolled loop: the subscribe/consume path is part
-            // of what the split changed and therefore part of what parity has to cover. It returns
-            // when the engine completes the stream at corpus exhaustion.
-            await RefineryRunner.RunAsync(client, pipeName,
-                _ => new RefineryLogic(records.Add, sink, verbose: false, dumpFrame: null, ledger),
-                sink, cts.Token);
+                // The plugin's own runner, not a hand-rolled loop: the subscribe/consume path is
+                // part of what the split changed and therefore part of what parity has to cover. It
+                // returns when the engine completes the stream at corpus exhaustion.
+                await RefineryRunner.RunAsync(client, pipeName,
+                    _ => new RefineryLogic(records.Add, sink, verbose: false, dumpFrame: null, ledger),
+                    sink, cts.Token);
 
-            await scan;
-            await engine.StopAsync();
+                // Checked before the assertions so a hang is reported as one. The runner treats a
+                // cancelled stream as a stream that ended, so a fired budget otherwise reaches the
+                // baselines as an empty ledger — a timeout wearing a parity failure's clothes.
+                Assert.False(cts.IsCancellationRequested,
+                    $"{corpus}: timed out after {TestTimeout}");
+
+                await scan;
+                await engine.StopAsync();
+            }
+            finally
+            {
+                // Nothing else observes the loop once the path above throws, and leaving the try
+                // block disposes the engine — ScanLoop.Dispose plus the frame source — underneath a
+                // loop still mid-frame. That surfaces as an ObjectDisposedException standing next to
+                // the real failure, so stop the loop here and let the primary exception through.
+                scanCts.Cancel();
+                try
+                {
+                    await scan;
+                }
+                catch (Exception ex)
+                {
+                    output.WriteLine($"{corpus}: scan loop ended with {ex.GetType().Name}: {ex.Message}");
+                }
+            }
 
             output.WriteLine($"{corpus}: {frameCount} frame(s) replayed, " +
                 $"{ledger.All.Count} order(s), {records.Count} capture(s)");
+
+            // Non-empty first, as ScanLoopTests does: Directory.Exists is satisfied by an empty
+            // directory, so a corpus that failed to copy — or a wholesale ROI failure — would reach
+            // the baselines as the same empty ledger a genuine parity break produces.
+            Assert.NotEqual(0, frameCount);
+            Assert.NotEmpty(records);
 
             return (ledger, records);
         }
