@@ -23,6 +23,13 @@ public sealed class CaptureClient : IDisposable
     /// <summary>Gap between engine-availability polls. Startup, not a hot path.</summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(200);
 
+    /// <summary>
+    /// How long the engine has to acknowledge a Hello. The ack is written before the engine drains
+    /// a single tick, so a healthy engine answers in the time one write takes; this bound exists
+    /// for the engine that will never answer, not for a slow one.
+    /// </summary>
+    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(10);
+
     private readonly GrpcChannel _channel;
     private readonly CaptureEngineService.CaptureEngineServiceClient _client;
 
@@ -31,6 +38,13 @@ public sealed class CaptureClient : IDisposable
         _channel = NamedPipeChannel.Create(pipeName);
         _client = new CaptureEngineService.CaptureEngineServiceClient(_channel);
     }
+
+    /// <summary>
+    /// The protocol version this client announces. Production is always
+    /// <see cref="ProtocolVersion.Current"/>; the setter exists so the tests can drive a genuine
+    /// mismatch through the real engine rather than through a stub that only claims to reject one.
+    /// </summary>
+    internal uint ClientProtocolVersion { get; init; } = ProtocolVersion.Current;
 
     /// <summary>Polls GetStatus until the engine answers or the timeout elapses. Lets a plugin
     /// start before the engine without a crash-loop.</summary>
@@ -41,6 +55,11 @@ public sealed class CaptureClient : IDisposable
     /// with an error".
     /// </exception>
     /// <exception cref="OperationCanceledException"><paramref name="ct"/> fired.</exception>
+    /// <exception cref="ProtocolMismatchException">
+    /// The engine answered, but the range it advertises does not contain this SDK's protocol
+    /// version. Raised on the first answer rather than retried: the versions of two running
+    /// processes do not change, so polling on could only spin until the timeout.
+    /// </exception>
     public async Task<StatusResponse> WaitForEngineAsync(TimeSpan timeout, CancellationToken ct)
     {
         var elapsed = Stopwatch.StartNew();
@@ -60,8 +79,16 @@ public sealed class CaptureClient : IDisposable
                 // Bounded by what is left of the budget, not by a fixed per-attempt deadline: a
                 // pipe nobody is listening on makes ConnectAsync wait, and without a deadline the
                 // very first attempt would hang past the timeout the caller asked for.
-                return await _client.GetStatusAsync(new StatusRequest(),
+                var status = await _client.GetStatusAsync(new StatusRequest(),
                     deadline: DateTime.UtcNow.Add(remaining), cancellationToken: ct);
+
+                // Inside the try on purpose, and safe there: ProtocolMismatchException is neither
+                // an RpcException nor an OperationCanceledException, so the filter below leaves it
+                // alone and it escapes instead of being folded into the retry loop.
+                ProtocolNegotiation.EnsureSupported(
+                    status.MinSupportedProtocol, status.MaxSupportedProtocol, ClientProtocolVersion);
+
+                return status;
             }
             catch (Exception e) when (e is RpcException or OperationCanceledException
                                       && !ct.IsCancellationRequested)
@@ -86,7 +113,18 @@ public sealed class CaptureClient : IDisposable
         }
     }
 
-    /// <summary>Opens the Track stream, sends Hello + the initial ROI set, returns the session.</summary>
+    /// <summary>
+    /// Opens the Track stream, completes the handshake, sends the initial ROI set, returns the
+    /// session. The returned session has already been told what protocol version and engine build
+    /// it is talking to — the ack is awaited here rather than surfaced through
+    /// <see cref="TrackSession.Ticks"/>, so a plugin never has to filter a handshake message out of
+    /// its tick loop.
+    /// </summary>
+    /// <exception cref="ProtocolMismatchException">The engine refused the announced version.</exception>
+    /// <exception cref="EngineUnavailableException">
+    /// The engine never acknowledged the Hello, or went away during the handshake.
+    /// </exception>
+    /// <exception cref="SessionFaultedException">The stream failed for any other reason.</exception>
     /// <param name="sessionCt">
     /// Governs the whole subscription, not just this call: it is the Track call's own token, so
     /// firing it later ends the stream and makes <see cref="TrackSession.Ticks"/> throw. Pass the
@@ -100,7 +138,13 @@ public sealed class CaptureClient : IDisposable
         var session = new TrackSession(_client.Track(cancellationToken: sessionCt));
         try
         {
-            await session.SendHelloAsync(clientName);
+            await session.SendHelloAsync(clientName, ClientProtocolVersion);
+
+            // Before the ROI set rather than after: an engine that refuses the version faults the
+            // stream, and subscribing into a stream already on its way down would report the
+            // refusal as a failed write on the ROI update instead of as the mismatch it is.
+            await session.ReceiveHelloAckAsync(HandshakeTimeout, ClientProtocolVersion, sessionCt);
+
             await session.UpdateRoisAsync(rois);
             return session;
         }
@@ -153,6 +197,15 @@ public sealed class TrackSession : IAsyncDisposable
 
     internal TrackSession(AsyncDuplexStreamingCall<TrackRequest, TrackResponse> call) => _call = call;
 
+    /// <summary>
+    /// Protocol version this session settled on — the lower of what the SDK announced and what the
+    /// engine speaks. A plugin reads it to decide whether a newer field is worth looking at.
+    /// </summary>
+    public uint NegotiatedProtocol { get; private set; }
+
+    /// <summary>Build of the engine on the other end, as it reported itself in the handshake.</summary>
+    public string EngineVersion { get; private set; } = string.Empty;
+
     /// <summary>Ticks as they arrive. Completes normally when the server ends the stream
     /// (replay finished / engine shutdown); throws RpcException(Unavailable) if the pipe drops,
     /// and OperationCanceledException — not RpcException(Cancelled) — when either
@@ -180,8 +233,64 @@ public sealed class TrackSession : IAsyncDisposable
         await SendAsync(new TrackRequest { Rois = update });
     }
 
-    internal Task SendHelloAsync(string clientName)
-        => SendAsync(new TrackRequest { Hello = new Hello { ClientName = clientName } });
+    internal Task SendHelloAsync(string clientName, uint protocolVersion)
+        => SendAsync(new TrackRequest
+        {
+            Hello = new Hello { ClientName = clientName, ProtocolVersion = protocolVersion },
+        });
+
+    /// <summary>
+    /// Reads the stream up to and including the HelloAck, and records what it said. Everything the
+    /// engine sends afterwards belongs to <see cref="Ticks"/>; nothing is consumed past the ack.
+    /// </summary>
+    /// <remarks>
+    /// A tick arriving before the ack is treated as a broken engine rather than tolerated. The
+    /// engine writes the ack ahead of the first tick by construction (it travels beside the tick
+    /// channel, not through it), so a tick here means the peer does not implement the handshake —
+    /// and silently continuing would leave <see cref="NegotiatedProtocol"/> reading 0 for the life
+    /// of a session the plugin believes was negotiated. Response kinds this SDK does not recognise
+    /// are skipped instead, which is the forward-compatible half of the same rule.
+    /// </remarks>
+    internal async Task ReceiveHelloAckAsync(TimeSpan timeout, uint sdkVersion, CancellationToken sessionCt)
+    {
+        using var ackCts = CancellationTokenSource.CreateLinkedTokenSource(sessionCt);
+        ackCts.CancelAfter(timeout);
+
+        try
+        {
+            while (await _call.ResponseStream.MoveNext(ackCts.Token))
+            {
+                var response = _call.ResponseStream.Current;
+                switch (response.MsgCase)
+                {
+                    case TrackResponse.MsgOneofCase.HelloAck:
+                        NegotiatedProtocol = response.HelloAck.NegotiatedProtocolVersion;
+                        EngineVersion = response.HelloAck.EngineVersion;
+                        return;
+
+                    case TrackResponse.MsgOneofCase.Tick:
+                        throw new SessionFaultedException(
+                            "The engine sent a tick before acknowledging the handshake; it does not " +
+                            "implement protocol negotiation.");
+                }
+            }
+
+            throw new SessionFaultedException(
+                "The engine ended the stream without acknowledging the handshake.");
+        }
+        catch (RpcException e)
+        {
+            throw ProtocolNegotiation.Translate(e, sdkVersion);
+        }
+        catch (OperationCanceledException e) when (!sessionCt.IsCancellationRequested)
+        {
+            // Our own deadline, not the caller's token: the channel maps both to an OCE, and only
+            // the filter tells them apart. The caller's cancellation propagates as-is — a plugin
+            // shutting down must not read as an engine failure.
+            throw new EngineUnavailableException(
+                $"The engine did not acknowledge the handshake within {timeout.TotalSeconds:0.##}s.", e);
+        }
+    }
 
     public async ValueTask DisposeAsync()
     {
