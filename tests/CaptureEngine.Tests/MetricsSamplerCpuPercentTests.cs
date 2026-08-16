@@ -4,10 +4,9 @@ using Xunit;
 namespace CaptureEngine.Tests;
 
 /// <summary>
-/// Parity with the monolith's MetricsSamplerCpuPercentTests: same inputs, same expected
-/// outputs, on the ported MetricsSampler.ComputeCpuPercent. If these ever disagree the two
-/// copies have drifted — which CI can only catch because it builds and tests the whole
-/// solution. Transitional, ends at ENGINE-SPLIT TASK-8.
+/// The monolith's MetricsSamplerCpuPercentTests, now the only copy: same inputs, same expected
+/// outputs, on the engine's MetricsSampler.ComputeCpuPercent. The clamping cases came from real
+/// timer jitter, so they stay as accumulated rather than re-derived from the arithmetic.
 /// </summary>
 public class MetricsSamplerCpuPercentTests
 {

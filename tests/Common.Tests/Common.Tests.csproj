@@ -1,11 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- Plain net10.0, like Common itself: the shared types are deliberately WinRT-free so both the
+       engine and the plugins can take them, and a Windows TFM here would stop proving that. -->
   <PropertyGroup>
-    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
-    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <PlatformTarget>x64</PlatformTarget>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
@@ -24,13 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\TrackingService\TrackingService.csproj" />
-  </ItemGroup>
-
-  <!-- Replay corpora for the integration tests: copied next to the test assembly so the relative
-       Fixtures/Replay/... paths resolve at run time. -->
-  <ItemGroup>
-    <None Include="Fixtures\**\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <ProjectReference Include="..\..\src\Common\Common.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,9 +1,8 @@
-using TrackingService;
 using Windows.Graphics.Imaging;
 using Windows.Media.Ocr;
 using Xunit;
 
-namespace TrackingService.Tests;
+namespace CaptureEngine.Tests;
 
 public class OcrPipelineEffectiveScaleTests
 {

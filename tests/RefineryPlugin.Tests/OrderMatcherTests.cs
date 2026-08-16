@@ -1,7 +1,7 @@
-using TrackingService.Orders;
+using RefineryPlugin.Orders;
 using Xunit;
 
-namespace TrackingService.Tests;
+namespace RefineryPlugin.Tests;
 
 public class OrderMatcherTests
 {

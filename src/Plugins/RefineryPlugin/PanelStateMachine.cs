@@ -1,6 +1,3 @@
-// TRANSITIONAL DUPLICATE of src/TrackingService/Trackers/PanelStateMachine.cs. The monolith stays
-// untouched until ENGINE-SPLIT TASK-8, which deletes its refinery path; until then both copies are
-// live and must be edited together.
 namespace RefineryPlugin;
 
 /// <summary>Which refinery panel the middle-column state header is showing this tick.</summary>

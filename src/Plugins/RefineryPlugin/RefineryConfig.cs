@@ -64,10 +64,6 @@ public sealed class RefineryConfig
     /// directory; rooted ⇒ verbatim. An empty value here means the special-folder default, not
     /// "relative to the config dir".
     /// </summary>
-    /// <remarks>TRANSITIONAL DUPLICATE of ProbeConfig.ResolveLedgerPath in the monolith
-    /// (src/TrackingService/Core/ProbeConfig.cs); both are live until ENGINE-SPLIT TASK-8 deletes
-    /// the monolith's refinery path, and the two must resolve identically or the same config file
-    /// would name two different ledgers.</remarks>
     internal static string ResolveLedgerPath(string ledgerPath, string configPath)
     {
         if (string.IsNullOrWhiteSpace(ledgerPath))

@@ -4,10 +4,9 @@ using Xunit;
 namespace CaptureContracts.Tests;
 
 /// <summary>
-/// Parity with the monolith's RoiScalerTests: same inputs, same expected outputs, on the
-/// RoiRect port. If these ever disagree the two scalers have drifted — which CI can only
-/// catch because it builds and tests the whole solution, not just the monolith's suite.
-/// The duplication is transitional and ends at ENGINE-SPLIT TASK-8.
+/// The monolith's RoiScalerTests, now the only copy: same inputs, same expected outputs, on the
+/// RoiRect port of the scaler. Every ROI in the system is placed by this arithmetic, so the cases
+/// stay exactly as the monolith accumulated them rather than being re-derived from the code.
 /// </summary>
 public class RoiScalerTests
 {
@@ -36,6 +35,17 @@ public class RoiScalerTests
     }
 
     [Fact]
+    public void ToFrame_At4K_ScalesUp()
+    {
+        var scaled = RoiScaler.ToFrame(SampleRoi, 3840, 2160);
+
+        Assert.Equal(930u, scaled.X);
+        Assert.Equal(960u, scaled.Y);
+        Assert.Equal(660u, scaled.Width);
+        Assert.Equal(510u, scaled.Height);
+    }
+
+    [Fact]
     public void ToFrame_AdjacentRois_StayAdjacentAfterScaling()
     {
         // Edge-based rounding: a ROI ending where another begins must not gap or overlap.
@@ -46,6 +56,19 @@ public class RoiScalerTests
         var scaledRight = RoiScaler.ToFrame(right, 1920, 1080);
 
         Assert.Equal(scaledLeft.X + scaledLeft.Width, scaledRight.X);
+    }
+
+    [Fact]
+    public void ToFrame_RoiTouchingFrameEdge_StaysInsideFrame()
+    {
+        var edgeRoi = new RoiRect(2100, 1300, 460, 140);
+
+        var scaled = RoiScaler.ToFrame(edgeRoi, 1920, 1080);
+
+        Assert.True(scaled.X + scaled.Width <= 1920);
+        Assert.True(scaled.Y + scaled.Height <= 1080);
+        Assert.True(scaled.Width >= 1);
+        Assert.True(scaled.Height >= 1);
     }
 
     [Fact]
@@ -71,6 +94,37 @@ public class RoiScalerTests
         // ArgumentException from deep inside the scaler; reject the frame size instead.
         Assert.Throws<ArgumentOutOfRangeException>(
             () => RoiScaler.ToFrame(SampleRoi, frameWidth, frameHeight));
+    }
+
+    [Fact]
+    public void ToFrameX_ScalesReferenceColumn()
+    {
+        // The point-scaling overloads the pixel-strip ROIs use; the identity case has to survive
+        // the same shortcut ToFrame takes.
+        Assert.Equal(798, RoiScaler.ToFrameX(1064, 1920));
+        Assert.Equal(1064, RoiScaler.ToFrameX(1064, RoiScaler.ReferenceWidth));
+    }
+
+    [Fact]
+    public void ToFrameY_ScalesReferenceRow()
+    {
+        Assert.Equal(480, RoiScaler.ToFrameY(640, 1080));
+    }
+
+    [Fact]
+    public void DescribeFrame_ReferenceResolution_SaysOneToOne()
+    {
+        Assert.Contains("1:1", RoiScaler.DescribeFrame(2560, 1440));
+    }
+
+    [Fact]
+    public void DescribeFrame_Same16By9_NoAspectWarning()
+    {
+        // Scaling within 16:9 is the verified path, so the banner must not cry wolf about it.
+        var text = RoiScaler.DescribeFrame(1920, 1080);
+
+        Assert.Contains("scaled", text);
+        Assert.DoesNotContain("WARNING", text);
     }
 
     [Fact]

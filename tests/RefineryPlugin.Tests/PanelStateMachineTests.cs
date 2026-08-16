@@ -1,13 +1,12 @@
-using TrackingService.Trackers;
 using Xunit;
 
-namespace TrackingService.Tests;
+namespace RefineryPlugin.Tests;
 
 /// <summary>
 /// Offline transition-table tests for <see cref="PanelStateMachine"/> — the pure seam extracted from
 /// RefineryTracker so the panel lifecycle can be verified with no WinRT/OCR coupling.
 /// </summary>
-public class RefineryTrackerPanelStateTests
+public class PanelStateMachineTests
 {
     private static readonly PanelObservation Setup = new(PanelState.Setup, false);
     private static readonly PanelObservation Processing = new(PanelState.Processing, false);

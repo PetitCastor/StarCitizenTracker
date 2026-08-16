@@ -2,7 +2,7 @@ using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
 using Xunit;
 
-namespace TrackingService.Tests;
+namespace CaptureEngine.Tests;
 
 /// <summary>
 /// Round-trip tests for the crop path every tracker reads through. These exist because the

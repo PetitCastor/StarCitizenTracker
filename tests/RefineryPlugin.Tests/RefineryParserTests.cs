@@ -1,8 +1,7 @@
-using TrackingService;
-using TrackingService.Trackers;
+using CaptureContracts;
 using Xunit;
 
-namespace TrackingService.Tests;
+namespace RefineryPlugin.Tests;
 
 public class RefineryParserTests
 {

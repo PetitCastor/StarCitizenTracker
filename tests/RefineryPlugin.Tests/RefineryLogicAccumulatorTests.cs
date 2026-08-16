@@ -1,10 +1,15 @@
-using TrackingService.Orders;
-using TrackingService.Trackers;
+using RefineryPlugin.Orders;
 using Xunit;
 
-namespace TrackingService.Tests;
+namespace RefineryPlugin.Tests;
 
-public class RefineryTrackerAccumulatorTests
+/// <summary>
+/// The monolith's RefineryTrackerAccumulatorTests, moved onto <see cref="RefineryLogic.Accumulator"/>
+/// unchanged: these cases are the record of how a scrolled SETUP list stitches back together, and
+/// relaxing one during the port would be a behaviour change dressed up as a move. Its IsRefineOn
+/// theory is not carried over — RefineryToggleSamplingTests already holds that exact theory.
+/// </summary>
+public class RefineryLogicAccumulatorTests
 {
     private static OrderMaterial Mat(string name, int quality, int qty, int yield, bool refine)
         => new(name, quality, qty, yield, refine);
@@ -12,7 +17,7 @@ public class RefineryTrackerAccumulatorTests
     [Fact]
     public void Merge_NewRows_KeepInsertionOrder()
     {
-        var acc = new RefineryTracker.Accumulator();
+        var acc = new RefineryLogic.Accumulator();
         acc.Merge(Mat("Titanium", 262, 10, 12, true));
         acc.Merge(Mat("Gold", 100, 5, 6, false));
 
@@ -22,7 +27,7 @@ public class RefineryTrackerAccumulatorTests
     [Fact]
     public void Merge_SameNameAndQuality_ReplacesRowButKeepsOriginalOrder()
     {
-        var acc = new RefineryTracker.Accumulator();
+        var acc = new RefineryLogic.Accumulator();
         acc.Merge(Mat("Titanium (Ore)", 262, 10, 12, true));
         acc.Merge(Mat("Gold", 100, 5, 6, false));
         // Rescroll: same material (same base name + quality) seen again with new values.
@@ -39,7 +44,7 @@ public class RefineryTrackerAccumulatorTests
     [Fact]
     public void Merge_SameNameDifferentQuality_KeptAsDistinctRows()
     {
-        var acc = new RefineryTracker.Accumulator();
+        var acc = new RefineryLogic.Accumulator();
         acc.Merge(Mat("Torite (Ore)", 262, 112, 50, false));
         acc.Merge(Mat("Torite (Ore)", 785, 156, 70, true));
 
@@ -51,20 +56,10 @@ public class RefineryTrackerAccumulatorTests
     [Fact]
     public void IsEmpty_TrueUntilFirstMerge()
     {
-        var acc = new RefineryTracker.Accumulator();
+        var acc = new RefineryLogic.Accumulator();
         Assert.True(acc.IsEmpty);
 
         acc.Merge(Mat("Gold", 100, 1, 1, true));
         Assert.False(acc.IsEmpty);
     }
-
-    [Theory]
-    [InlineData(200, 50, true)]   // clearly orange/red (ON)
-    [InlineData(80, 80, false)]   // clearly neutral gray
-    [InlineData(141, 78, true)]   // just over both thresholds
-    [InlineData(141, 79, false)]  // R > 140 but R <= B*1.8
-    [InlineData(140, 50, false)]  // R not strictly > 140
-    [InlineData(251, 244, false)] // white knob (OFF) — R high but R <= B*1.8
-    public void IsRefineOn_AppliesColorThreshold(byte r, byte b, bool expected)
-        => Assert.Equal(expected, RefineryTracker.IsRefineOn((b, 0, r)));
 }

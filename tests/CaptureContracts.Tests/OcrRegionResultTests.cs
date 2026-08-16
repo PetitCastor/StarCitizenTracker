@@ -1,7 +1,7 @@
-using TrackingService;
+using CaptureContracts;
 using Xunit;
 
-namespace TrackingService.Tests;
+namespace CaptureContracts.Tests;
 
 public class OcrRegionResultTests
 {

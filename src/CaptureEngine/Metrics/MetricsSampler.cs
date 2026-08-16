@@ -1,9 +1,3 @@
-// TRANSITIONAL DUPLICATE of src/TrackingService/Metrics/MetricsSampler.cs, byte-identical apart
-// from the namespace. Nothing references this copy yet — the engine picks it up in
-// ENGINE-SPLIT TASK-3, and TASK-8 deletes the monolith's copy in favour of it. Until then both
-// are live and must be edited together. tests/CaptureEngine.Tests/MetricsSamplerCpuPercentTests.cs
-// mirrors the monolith's assertions for the pure ComputeCpuPercent logic; the PDH-backed
-// Sample() needs live counters and has no parity test in the monolith either.
 using System.Diagnostics;
 
 namespace CaptureEngine.Metrics;

@@ -1,8 +1,8 @@
 using System.Text.Json.Nodes;
-using TrackingService.Orders;
+using RefineryPlugin.Orders;
 using Xunit;
 
-namespace TrackingService.Tests;
+namespace RefineryPlugin.Tests;
 
 /// <summary>
 /// First temp-dir-backed test class in the project: each test gets a fresh throwaway directory that

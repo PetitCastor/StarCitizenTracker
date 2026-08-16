@@ -1,8 +1,3 @@
-// TRANSITIONAL DUPLICATE of src/TrackingService/Core/RoiScaler.cs (that copy is the same
-// algorithm over WinRT BitmapBounds). The monolith stays untouched until ENGINE-SPLIT TASK-8,
-// which points TrackingService at this project and deletes the original; until then both copies
-// are live and must be edited together. tests/CaptureContracts.Tests/RoiScalerTests.cs mirrors
-// the monolith's assertions to catch drift, and CI runs both suites.
 namespace CaptureContracts;
 
 /// <summary>

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Excludes files that are pure OS/hardware or process interop (Win32 capture, keyboard hook
+  thread, WinRT OCR engine calls, file/JSON I/O, the named-pipe channel, each exe's entry point)
+  from the coverage gate. These have no branching business logic worth pinning with unit tests
+  and can't run without a live display/OCR engine or a second process; they're verified manually
+  and via the replay/parity regression tests instead. Each excluded file's pure static helper (if
+  any) is still unit tested directly; excluding the file only affects the aggregate coverage
+  percentage, not whether that helper gets tested.
+
+  Everything else stays gated — the contracts, the plugins' parser/state-machine/ledger code, the
+  engine's scan loop, subscription registry and gRPC service, and the SDK's tick mapping.
+
+  This is the same policy the monolith's tests/TrackingService.Tests/coverlet.runsettings carried,
+  re-pointed at the engine/plugin layout after ENGINE-SPLIT TASK-8 retired src/TrackingService.
+  The old Trackers/TrackerHost.cs and Trackers/FrameDumpTracker.cs entries are gone with the
+  files: the scan loop that replaced TrackerHost is directly tested, so it stays gated. As
+  before, there is no numeric threshold here — the gate is this exclusion policy, and the bar is
+  read off the aggregate.
+
+  Usage (from the repo root):
+    dotnet test StarCitizenTracker.slnx --settings coverlet.runsettings --collect:"XPlat Code Coverage"
+-->
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+          <ExcludeByFile>
+            **/Core/CaptureInterop.cs,
+            **/Core/MonitorCapture.cs,
+            **/Core/FrameSaver.cs,
+            **/Core/HotkeyListener.cs,
+            **/Core/OcrPipeline.cs,
+            **/Core/EngineConfig.cs,
+            **/ConsoleSink.cs,
+            **/NamedPipeChannel.cs,
+            **/Metrics/MetricsSampler.cs,
+            **/Metrics/MetricsReporter.cs,
+            **/Program.cs
+          </ExcludeByFile>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

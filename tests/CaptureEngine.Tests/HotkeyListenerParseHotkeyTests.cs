@@ -3,10 +3,9 @@ using Xunit;
 namespace CaptureEngine.Tests;
 
 /// <summary>
-/// Parity with the monolith's HotkeyListenerParseHotkeyTests: same inputs, same expected
-/// outputs, on the ported HotkeyListener. If these ever disagree the two copies have drifted —
-/// which CI can only catch because it builds and tests the whole solution. Transitional, ends
-/// at ENGINE-SPLIT TASK-8.
+/// The monolith's HotkeyListenerParseHotkeyTests, now the only copy: same inputs, same expected
+/// outputs, on the engine's HotkeyListener. A hotkey string is user-authored config, so these
+/// cases stay exactly as they were accumulated rather than re-derived from the parser.
 /// </summary>
 public class HotkeyListenerParseHotkeyTests
 {

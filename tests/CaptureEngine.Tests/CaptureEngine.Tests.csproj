@@ -37,17 +37,9 @@
     <ProjectReference Include="..\..\src\Plugins\RefineryPlugin\RefineryPlugin.csproj" />
   </ItemGroup>
 
-  <!-- The monolith's replay corpora, copied next to this assembly so the parity tests replay the
-       very same PNGs its integration tests assert on. Linked rather than duplicated on disk: two
-       copies of a corpus would drift, and the whole point is that both suites see one corpus. -->
-  <ItemGroup>
-    <Content Include="..\TrackingService.Tests\Fixtures\Replay\**\*.png"
-             Link="Fixtures\Replay\%(RecursiveDir)%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
-  <!-- Replay corpus for the scan-loop tests: copied next to the test assembly so the relative
-       Fixtures/engine-smoke path resolves at run time (same pattern as the monolith suite). -->
+  <!-- Every replay corpus this suite drives: Fixtures/engine-smoke for the scan-loop tests, and
+       Fixtures/Replay/** — the corpora inherited from the monolith when it was retired — for the
+       parity tests. Copied next to the test assembly so the relative paths resolve at run time. -->
   <ItemGroup>
     <None Include="Fixtures\**\*.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

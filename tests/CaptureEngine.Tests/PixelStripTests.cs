@@ -1,7 +1,6 @@
-using TrackingService;
 using Xunit;
 
-namespace TrackingService.Tests;
+namespace CaptureEngine.Tests;
 
 public class PixelStripTests
 {

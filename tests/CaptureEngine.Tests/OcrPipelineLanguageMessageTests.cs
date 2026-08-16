@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace TrackingService.Tests;
+namespace CaptureEngine.Tests;
 
 /// <summary>
 /// The engine-construction path itself needs a real OCR pack, so only the diagnostics are

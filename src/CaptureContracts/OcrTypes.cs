@@ -1,7 +1,3 @@
-// TRANSITIONAL DUPLICATE of src/TrackingService/Core/OcrRegionResult.cs. The monolith stays
-// untouched until ENGINE-SPLIT TASK-8, which points TrackingService at this project and deletes
-// the original; until then both copies are live and must be edited together. CI builds and
-// tests both so the parity tests in tests/CaptureContracts.Tests catch drift.
 namespace CaptureContracts;
 
 /// <summary>Plain rectangle in upscaled-crop pixel space (no WinRT types so parsers stay testable).</summary>
