@@ -93,21 +93,25 @@ internal sealed class TickDispatcher
     /// Which of the subscribed regions the engine flagged as failed on this tick.
     /// </summary>
     /// <remarks>
-    /// Asks per subscribed id rather than reading a list off the tick because that list does not
-    /// exist yet — TASK-08 adds <c>TickData.ErroredRois</c> and this collapses into it. Only ids the
-    /// plugin actually subscribed are consulted either way: an engine echoing back something else is
-    /// not this plugin's problem.
+    /// Intersected with the plugin's own subscription rather than taken from
+    /// <see cref="TickData.ErroredRois"/> wholesale: the engine echoes ids back unvalidated, and a
+    /// stray failed result must not withdraw every tick of a run under
+    /// <see cref="RoiErrorPolicy.AbortTick"/>. <see cref="TickData.HasErrors"/> short-circuits the
+    /// walk on the ticks that are fine, which is nearly all of them.
     /// </remarks>
-    private IReadOnlyList<string> ErroredRois(TickData tick)
+    private IReadOnlyList<RoiId> ErroredRois(TickData tick)
     {
-        List<string>? errored = null;
+        if (!tick.HasErrors)
+            return [];
+
+        List<RoiId>? errored = null;
         foreach (var roi in _plugin.Rois)
         {
-            if (tick.Error(roi.Id) is not null)
+            if (tick.Status(roi.Id) == RoiStatus.Failed)
                 (errored ??= []).Add(roi.Id);
         }
 
-        return errored ?? (IReadOnlyList<string>)[];
+        return errored ?? (IReadOnlyList<RoiId>)[];
     }
 
     /// <summary>
@@ -119,7 +123,7 @@ internal sealed class TickDispatcher
     {
         private string _reported = "";
 
-        public bool ShouldReport(IReadOnlyList<string> errored)
+        public bool ShouldReport(IReadOnlyList<RoiId> errored)
         {
             // ROI ids are client-chosen and could contain anything printable, so the separator is
             // the ASCII unit separator rather than a comma.

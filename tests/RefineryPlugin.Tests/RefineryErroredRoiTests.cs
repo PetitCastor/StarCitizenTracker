@@ -49,11 +49,11 @@ public class RefineryErroredRoiTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private Task SetupTick(params string[] errored) => _logic.OnTickAsync(Tick("SETUP",
+    private Task SetupTick(params RoiId[] errored) => _logic.OnTickAsync(Tick("SETUP",
         station: Station, setupRows: SetupRows, toggle: ToggleOn, erroredRois: errored));
 
     private Task YieldTick(string panel, string modal = "", string total = YieldTotal,
-        params string[] errored)
+        params RoiId[] errored)
         => _logic.OnTickAsync(Tick(panel, modal: modal, station: Station, yieldTotal: total,
             yieldRows: YieldRows, erroredRois: errored));
 

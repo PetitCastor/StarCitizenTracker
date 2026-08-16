@@ -40,8 +40,13 @@ public class SdkTests
         Assert.True(status.ReplayMode);
 
         // The scan loop was never started, so the wait must have succeeded on the RPC answering —
-        // not on any frame having been produced.
-        Assert.Equal(0ul, status.FrameSeq);
+        // not on any frame having been produced. Read off the raw status: the frame sequence is
+        // engine bookkeeping, deliberately not part of what EngineInfo tells a plugin.
+        Assert.Equal(0ul, (await client.GetStatusResponseAsync(cts.Token)).FrameSeq);
+
+        // The engine reports the cadence it actually scans at, so a plugin counting ticks does not
+        // have to assume 500 ms (TASK-08).
+        Assert.Equal(TimeSpan.FromMilliseconds(new EngineConfig().ScanIntervalMs), status.ScanInterval);
     }
 
     [Fact]
@@ -372,5 +377,106 @@ public class SdkTests
         // so, rather than throwing out of the semaphore the first dispose used to destroy.
         await Assert.ThrowsAsync<ObjectDisposedException>(
             () => session.UpdateRoisAsync([EngineTestFixtures.ToggleStripSubscription()]));
+    }
+
+    // ---------- ReadRoi (TASK-08) ----------
+
+    /// <summary>
+    /// The calibration read: one region, against the frame the last tick saw, with no session at
+    /// all. This is what makes "is my ROI constant right" answerable without adding the region to a
+    /// plugin's subscription and restarting it.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task ReadRoiAsync_AfterAFrameHasBeenScanned_ReadsTheRegion()
+    {
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var sink = new ConsoleSink();
+
+        var pipeName = NewPipeName();
+        await using var engine = EngineHost.Create(pipeName, new EngineConfig(), new OcrPipeline(),
+            new ReplayFrameSource(EngineTestFixtures.ReplayDir), sink, verbose: false);
+        await engine.StartAsync(cts.Token);
+
+        using var client = new CaptureClient(pipeName);
+        await client.WaitForEngineAsync(ConnectTimeout, cts.Token);
+
+        // A subscriber is what makes the loop hand out frames, and the corpus is drained rather than
+        // cut short: in replay the loop blocks on a client that stops reading. The read below then
+        // answers from the frame the loop retained, which is the point — no capture of its own.
+        await using (var session = await client.TrackAsync("reader",
+            [EngineTestFixtures.PanelStateSubscription()], cts.Token))
+        {
+            var scan = engine.RunScanAsync(cts.Token);
+            await foreach (var _ in session.Ticks(cts.Token)) { }
+            await scan;
+        }
+
+        var ocr = await client.ReadRoiAsync(EngineTestFixtures.PanelStateSubscription(), cts.Token);
+
+        Assert.NotNull(ocr);
+        Assert.True(ocr.EffectiveScale > 0);
+
+        // Frame-space geometry, so a caller can map a word back to a screen pixel exactly as it can
+        // from a tick — the wrapper must not flatten that away.
+        Assert.True(ocr.RoiWidth > 0 && ocr.RoiHeight > 0);
+    }
+
+    /// <summary>
+    /// Null, not an exception: an engine that has not scanned yet is the ordinary case for a plugin
+    /// that starts with the engine, and a calibration helper that threw on it would be unusable in
+    /// the first seconds of every run.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task ReadRoiAsync_BeforeAnyFrame_IsNull()
+    {
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var sink = new ConsoleSink();
+
+        var pipeName = NewPipeName();
+        await using var engine = EngineHost.Create(pipeName, new EngineConfig(), new OcrPipeline(),
+            new ReplayFrameSource(EngineTestFixtures.ReplayDir), sink, verbose: false);
+        await engine.StartAsync(cts.Token);
+
+        using var client = new CaptureClient(pipeName);
+        await client.WaitForEngineAsync(ConnectTimeout, cts.Token);
+
+        // The scan loop was never started, so there is no retained frame to read against.
+        Assert.Null(await client.ReadRoiAsync(EngineTestFixtures.PanelStateSubscription(), cts.Token));
+    }
+
+    /// <summary>
+    /// A region the engine could not read is raised, never folded into the null that means "no
+    /// frame yet": those two are the same "nothing came back" to a caller, and only one of them is
+    /// the caller's own mistake.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task ReadRoiAsync_OfAnOffFrameRegion_Throws()
+    {
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var sink = new ConsoleSink();
+
+        var pipeName = NewPipeName();
+        await using var engine = EngineHost.Create(pipeName, new EngineConfig(), new OcrPipeline(),
+            new ReplayFrameSource(EngineTestFixtures.ReplayDir), sink, verbose: false);
+        await engine.StartAsync(cts.Token);
+
+        using var client = new CaptureClient(pipeName);
+        await client.WaitForEngineAsync(ConnectTimeout, cts.Token);
+
+        await using (var session = await client.TrackAsync("reader",
+            [EngineTestFixtures.PanelStateSubscription()], cts.Token))
+        {
+            var scan = engine.RunScanAsync(cts.Token);
+            await foreach (var _ in session.Ticks(cts.Token)) { }
+            await scan;
+        }
+
+        var ex = await Assert.ThrowsAsync<RoiResultException>(() => client.ReadRoiAsync(
+            RoiSubscription.FromProto(EngineTestFixtures.OffFrameRoi()), cts.Token));
+
+        Assert.True(ex.ReportedByEngine);
     }
 }

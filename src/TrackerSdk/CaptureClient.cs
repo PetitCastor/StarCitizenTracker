@@ -40,7 +40,7 @@ public sealed class CaptureClient : IDisposable
     private readonly GrpcChannel _channel;
     private readonly CaptureEngineService.CaptureEngineServiceClient _client;
 
-    public CaptureClient(string pipeName = NamedPipeChannel.DefaultPipeName)
+    public CaptureClient(string pipeName = EngineDefaults.PipeName)
     {
         _channel = NamedPipeChannel.Create(pipeName);
         _client = new CaptureEngineService.CaptureEngineServiceClient(_channel);
@@ -67,7 +67,20 @@ public sealed class CaptureClient : IDisposable
     /// version. Raised on the first answer rather than retried: the versions of two running
     /// processes do not change, so polling on could only spin until the timeout.
     /// </exception>
-    public async Task<StatusResponse> WaitForEngineAsync(TimeSpan timeout, CancellationToken ct)
+    public async Task<EngineInfo> WaitForEngineAsync(TimeSpan timeout, CancellationToken ct)
+        => EngineInfo.From(await WaitForStatusAsync(timeout, ct));
+
+    /// <summary>
+    /// <see cref="WaitForEngineAsync"/> without the mapping — the raw status message, for the engine's
+    /// own tests and for the fields <see cref="EngineInfo"/> deliberately does not carry (the frame
+    /// sequence, the supported protocol range).
+    /// </summary>
+    /// <remarks>
+    /// Internal, not obsolete-public: <see cref="StatusResponse"/> is generated, and an exported
+    /// signature naming it would put a proto type back on the surface the SDK exists to keep clean —
+    /// which the architecture test in <c>TrackerSdk.Tests</c> now enforces.
+    /// </remarks>
+    internal async Task<StatusResponse> WaitForStatusAsync(TimeSpan timeout, CancellationToken ct)
     {
         var elapsed = Stopwatch.StartNew();
         Exception? last = null;
@@ -196,8 +209,50 @@ public sealed class CaptureClient : IDisposable
     /// engine what it is, including an engine this SDK could not hold a session with. Use
     /// <see cref="WaitForEngineAsync"/> to connect; use this to report.
     /// </summary>
-    public async Task<StatusResponse> GetStatusAsync(CancellationToken ct)
+    public async Task<EngineInfo> GetStatusAsync(CancellationToken ct)
+        => EngineInfo.From(await GetStatusResponseAsync(ct));
+
+    /// <summary>The raw status message; see <see cref="WaitForStatusAsync"/> for why it is internal.</summary>
+    internal async Task<StatusResponse> GetStatusResponseAsync(CancellationToken ct)
         => await _client.GetStatusAsync(new StatusRequest(), cancellationToken: ct);
+
+    /// <summary>
+    /// Reads one region against the engine's most recently scanned frame, outside any tick. Returns
+    /// null when the engine has not scanned a frame yet.
+    /// </summary>
+    /// <remarks>
+    /// A calibration aid, not a data path: it deliberately does not make the engine capture, so what
+    /// comes back is exactly what the last tick saw — which is what makes it usable for checking a
+    /// ROI constant against a frame a plugin has already reacted to. Anything a plugin acts on
+    /// belongs in <see cref="TrackSession.Ticks"/>, where per-tick atomicity holds; two reads through
+    /// here are two separate round-trips and may straddle a frame.
+    /// </remarks>
+    /// <exception cref="RoiResultException">
+    /// The engine flagged the region as failed, or the result cannot be read as OCR — notably when
+    /// <paramref name="roi"/> is a <see cref="RoiKind.Pixels"/> subscription, which has no OCR to
+    /// return. Raised rather than folded into a null so a mis-declared region cannot read as "the
+    /// engine has no frame".
+    /// </exception>
+    public async Task<OcrRegionResult?> ReadRoiAsync(RoiSubscription roi, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(roi);
+
+        var response = await _client.ReadRoiAsync(new ReadRoiRequest { Roi = roi.ToProto() },
+            cancellationToken: ct);
+
+        if (response.NoFrame)
+            return null;
+
+        // A response that is neither "no frame" nor a result is a peer bug. Named as one here
+        // because the alternative — mapping an all-defaults RoiResult — reports it as an
+        // effective_scale violation on a region the engine never even read.
+        if (response.Result is not { } result)
+            throw new RoiResultException(roi.Id.Value,
+                "the engine answered a ReadRoi with neither a frame flag nor a result.",
+                reportedByEngine: false);
+
+        return result.ToOcrRegionResult();
+    }
 
     public void Dispose() => _channel.Dispose();
 }

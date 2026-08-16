@@ -206,4 +206,10 @@ message StatusResponse {
   repeated string connected_clients = 7;
   uint32 min_supported_protocol = 8;
   uint32 max_supported_protocol = 9;
+
+  // The cadence the scan loop actually runs at, after the engine has clamped whatever its config
+  // asked for. Reported so a plugin can express a timeout in ticks without hardcoding the engine's
+  // interval — "three ticks" is a property of the parser, "1.5 s" is a guess about the engine.
+  // 0 means an engine older than this field; clients fall back to their own default.
+  uint32 scan_interval_ms = 10;
 }

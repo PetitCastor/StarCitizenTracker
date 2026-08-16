@@ -37,7 +37,7 @@ internal static class RefineryRunner
     /// <paramref name="ct"/> fires. Reconnects on its own when the engine goes away mid-session.
     /// </summary>
     public static async Task RunAsync(CaptureClient client, string pipeName,
-        Func<StatusResponse, RefineryLogic> logicFactory, ConsoleSink sink, CancellationToken ct)
+        Func<EngineInfo, RefineryLogic> logicFactory, ConsoleSink sink, CancellationToken ct)
     {
         RefineryLogic? logic = null;
 

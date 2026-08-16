@@ -94,7 +94,8 @@ public static class TrackerPluginHost
             // Debug dumps are the engine's to write — the frame never crosses the boundary, only the
             // path it was written to. Null switches the whole debug path off inside the plugin.
             var services = new PluginServices(records, output, parsed.Verbose,
-                config.SaveDebugFrames ? client.DumpFrameAsync : null);
+                config.SaveDebugFrames ? client.DumpFrameAsync : null,
+                client.ReadRoiAsync);
 
             output.WriteLine($"Pipe:      {parsed.PipeName}");
             output.WriteLine($"Debug:     {(config.SaveDebugFrames
@@ -150,13 +151,13 @@ public static class TrackerPluginHost
                 // the boundary ever changed.
                 try
                 {
-                    var status = await client.WaitForEngineAsync(options.EngineWait, ct);
+                    var engine = await client.WaitForEngineAsync(options.EngineWait, ct);
                     announcedWait = false;
-                    replayMode = status.ReplayMode;
+                    replayMode = engine.ReplayMode;
 
                     await using var session = await client.TrackAsync(plugin.Name, rois, ct);
 
-                    services.Engine = EngineInfo.From(status, session);
+                    services.Engine = engine.WithSession(session);
                     dispatcher.OnConnected();
                     reconnectAttempt = 0;
                     plugin.OnSessionEvent(new SessionEvent.Connected(services.Engine));
@@ -245,6 +246,7 @@ public static class TrackerPluginHost
         output.WriteLine($"Frame:     {(engine.FrameWidth == 0
             ? "no frame scanned yet"
             : $"{engine.FrameWidth}x{engine.FrameHeight}")}");
+        output.WriteLine($"Cadence:   {engine.ScanInterval.TotalMilliseconds:0} ms per scan");
         output.WriteLine($"ROIs:      {string.Join(", ", rois.Select(r => r.Id))}");
         output.WriteLine();
         output.WriteLine("Running. Ctrl+C to quit.");

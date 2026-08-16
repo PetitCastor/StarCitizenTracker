@@ -12,7 +12,7 @@ namespace RefineryPlugin;
 public sealed class RefineryConfig
 {
     /// <summary>Named pipe the engine listens on; must match the engine's own setting.</summary>
-    public string PipeName { get; set; } = NamedPipeChannel.DefaultPipeName;
+    public string PipeName { get; set; } = EngineDefaults.PipeName;
 
     /// <summary>Persist observed refinery work orders to an append-only JSONL ledger.</summary>
     public bool LedgerEnabled { get; set; } = true;

@@ -15,12 +15,7 @@ namespace TrackerSdk;
 public abstract class PluginConfig
 {
     /// <summary>Named pipe the engine listens on; must match the engine's own setting.</summary>
-    /// <remarks>
-    /// TASK-08 introduces <c>EngineDefaults</c> as the single home for engine-side constants and
-    /// repoints this at <c>EngineDefaults.PipeName</c>. Until then the existing constant is used
-    /// directly rather than adding a third name for one string.
-    /// </remarks>
-    public string PipeName { get; set; } = NamedPipeChannel.DefaultPipeName;
+    public string PipeName { get; set; } = EngineDefaults.PipeName;
 
     /// <summary>
     /// Ask the engine to dump a PNG on every capture and write the plugin's rendering beside it.

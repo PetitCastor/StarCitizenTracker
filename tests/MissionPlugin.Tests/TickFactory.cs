@@ -40,7 +40,7 @@ internal static class TickFactory
     /// would have scaled by 1 and echoed the subscribed rect straight back.</summary>
     private static RoiResult TextResult(RoiSubscription roi, string text) => new()
     {
-        RoiId = roi.Id,
+        RoiId = roi.Id.Value,
         Kind = RoiResultKind.Text,
         FrameRect = roi.Rect.ToProto(),
         EffectiveScale = roi.Scale,

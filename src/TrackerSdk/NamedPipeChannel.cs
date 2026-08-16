@@ -11,12 +11,17 @@ namespace TrackerSdk;
 /// One implementation, referenced by the SDK client and by the engine tests alike. The pattern
 /// used to be copy-pasted per call site, and a copy that drifts (a missing PipeOptions.Asynchronous,
 /// a different impersonation level) fails as a hang rather than as an error.
+/// <para>
+/// Internal, because <see cref="Create"/> hands back a <see cref="GrpcChannel"/> and a plugin that
+/// can name one is a plugin coupled to the transport — the architecture test in
+/// <c>TrackerSdk.Tests</c> catches exactly this. What a plugin actually wanted from here was the
+/// pipe name, which is <see cref="EngineDefaults.PipeName"/>.
+/// </para>
 /// </remarks>
-public static class NamedPipeChannel
+internal static class NamedPipeChannel
 {
-    /// <summary>Pipe the engine listens on unless its config says otherwise. Restated from
-    /// <see cref="PipeContract"/> so a plugin can name it without referencing the contracts
-    /// assembly; it is the same constant, not a second copy.</summary>
+    /// <summary>Pipe the engine listens on unless its config says otherwise; the same constant as
+    /// <see cref="PipeContract.DefaultPipeName"/>, not a second copy.</summary>
     public const string DefaultPipeName = PipeContract.DefaultPipeName;
 
     /// <summary>

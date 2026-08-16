@@ -96,7 +96,12 @@ was built, the protocol version says what can talk to what.
   cannot distinguish an unset double from 0. The engine reports what it actually applied in
   `RoiResult.effective_scale`, which is `> 0` on every successful result.
 - **Check `RoiResult.error` first.** On an error result every payload field is unset, and an empty
-  `text` is not the same as a successfully read empty panel.
+  `text` is not the same as a successfully read empty panel. On the SDK side this is
+  `TickData.Status` / `TryGetText`, whose `false` cannot be mistaken for a reading the way `""` can.
+- **`StatusResponse.scan_interval_ms = 0` means "engine older than this field"**, not a zero-length
+  cadence. The value is the interval the scan loop actually sleeps for, after the engine's own
+  minimum clamp — so a plugin expressing a debounce in ticks reads it instead of assuming 500 ms.
+  `EngineInfo.ScanInterval` falls back to `EngineDefaults.DefaultScanInterval` on the zero.
 
 ## Coordinate spaces
 

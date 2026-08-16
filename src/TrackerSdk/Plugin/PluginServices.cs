@@ -26,21 +26,30 @@ internal sealed class PluginServices : IPluginServices
     /// </summary>
     private readonly Func<RoiRect?, string, CancellationToken, Task<string?>>? _dumpFrame;
 
+    /// <summary>
+    /// Null only in tests that never exercise the calibration read. Not gated on the debug-frames
+    /// setting the way <see cref="_dumpFrame"/> is: this one writes nothing, so there is nothing to
+    /// switch off.
+    /// </summary>
+    private readonly Func<RoiSubscription, CancellationToken, Task<OcrRegionResult?>>? _readRoi;
+
     public PluginServices(List<TrackerRecord> records, IPluginOutput output, bool verbose,
-        Func<RoiRect?, string, CancellationToken, Task<string?>>? dumpFrame)
+        Func<RoiRect?, string, CancellationToken, Task<string?>>? dumpFrame,
+        Func<RoiSubscription, CancellationToken, Task<OcrRegionResult?>>? readRoi = null)
     {
         _records = records;
         _output = output;
         _verbose = verbose;
         _dumpFrame = dumpFrame;
+        _readRoi = readRoi;
     }
 
     /// <summary>
     /// What the host last connected to. Set before <see cref="SessionEvent.Connected"/> is raised,
     /// so a plugin reading it from inside that handler sees the new engine, not the old one.
     /// </summary>
-    public EngineInfo Engine { get; internal set; } =
-        new("", 0, 0, 0, ReplayMode: false, OcrLanguage: "", ConnectedClients: []);
+    public EngineInfo Engine { get; internal set; } = new("", 0, 0, 0, ReplayMode: false,
+        OcrLanguage: "", ConnectedClients: [], ScanInterval: EngineDefaults.DefaultScanInterval);
 
     public void Emit(TrackerRecord record)
     {
@@ -58,6 +67,9 @@ internal sealed class PluginServices : IPluginServices
 
     public Task<string?> DumpFrameAsync(RoiRect? roi, string prefix, CancellationToken ct)
         => _dumpFrame?.Invoke(roi, prefix, ct) ?? Task.FromResult<string?>(null);
+
+    public Task<OcrRegionResult?> ReadRoiAsync(RoiSubscription roi, CancellationToken ct)
+        => _readRoi?.Invoke(roi, ct) ?? Task.FromResult<OcrRegionResult?>(null);
 
     public void Log(string message) => _output.WriteLine(message);
 
