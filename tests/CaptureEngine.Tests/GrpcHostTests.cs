@@ -113,9 +113,16 @@ public class GrpcHostTests
             // Nothing more to send: half-closing is how a subscribe-once plugin says so.
             await call.RequestStream.CompleteAsync();
 
+            // Raw generated client, so the oneof arms arrive unfiltered: the handshake ack comes
+            // first and every tick after it. Skipping the non-tick arms is what TrackSession.Ticks
+            // does for plugins; doing it here keeps this test about the corpus, not the handshake
+            // (ProtocolHandshakeTests owns that).
             var ticks = new List<TickResult>();
             await foreach (var response in call.ResponseStream.ReadAllAsync(cts.Token))
-                ticks.Add(response.Tick);
+            {
+                if (response.MsgCase == TrackResponse.MsgOneofCase.Tick)
+                    ticks.Add(response.Tick);
+            }
 
             await scan;
 

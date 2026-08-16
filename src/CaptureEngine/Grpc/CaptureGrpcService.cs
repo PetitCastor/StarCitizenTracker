@@ -63,6 +63,7 @@ public sealed class CaptureGrpcService : CaptureEngineService.CaptureEngineServi
 
         try
         {
+            var helloAcknowledged = false;
             var pump = Task.Run(async () =>
             {
                 await foreach (var msg in requestStream.ReadAllAsync(pumpCts.Token))
@@ -70,7 +71,35 @@ public sealed class CaptureGrpcService : CaptureEngineService.CaptureEngineServi
                     switch (msg.MsgCase)
                     {
                         case TrackRequest.MsgOneofCase.Hello:
+                            if (helloAcknowledged)
+                                break;
+
                             client.Name = msg.Hello.ClientName;
+                            var version = msg.Hello.ProtocolVersion == 0 ? 1u : msg.Hello.ProtocolVersion;
+                            if (version < ProtocolVersion.Min || version > ProtocolVersion.Current)
+                            {
+                                throw new RpcException(new Status(StatusCode.FailedPrecondition,
+                                    $"protocol {version} unsupported; engine speaks {ProtocolVersion.Min}-{ProtocolVersion.Current}"),
+                                    new Metadata
+                                    {
+                                        { "sctracker-protocol-min", ProtocolVersion.Min.ToString() },
+                                        { "sctracker-protocol-max", ProtocolVersion.Current.ToString() },
+                                    });
+                            }
+
+                            var status = _status.Snapshot();
+                            await client.Out.Writer.WriteAsync(new TrackResponse
+                            {
+                                HelloAck = new HelloAck
+                                {
+                                    NegotiatedProtocolVersion = Math.Min(version, ProtocolVersion.Current),
+                                    EngineVersion = status.EngineVersion,
+                                    FrameWidth = status.FrameWidth,
+                                    FrameHeight = status.FrameHeight,
+                                    ReplayMode = status.ReplayMode,
+                                },
+                            }, pumpCts.Token);
+                            helloAcknowledged = true;
                             break;
                         case TrackRequest.MsgOneofCase.Rois:
                             client.SetRois(msg.Rois);
@@ -80,9 +109,28 @@ public sealed class CaptureGrpcService : CaptureEngineService.CaptureEngineServi
             }, pumpCts.Token);
 
             // Completes when the registry completes the channel: replay finished, or the engine
-            // is shutting down. A client disconnecting instead surfaces as a cancellation.
-            await foreach (var response in client.Out.Reader.ReadAllAsync(ctx.CancellationToken))
-                await responseStream.WriteAsync(response);
+            // is shutting down. A client disconnecting instead surfaces as a cancellation. A
+            // failed request pump must end the call immediately too: otherwise an unsupported
+            // Hello would be stranded behind a response read that can never produce another item.
+            while (true)
+            {
+                if (pump.IsFaulted)
+                    await pump;
+
+                var read = client.Out.Reader.WaitToReadAsync(ctx.CancellationToken).AsTask();
+                if (!pump.IsCompleted)
+                {
+                    var completed = await Task.WhenAny(read, pump);
+                    if (completed == pump)
+                        await pump; // preserves the RpcException and its protocol-range trailers
+                }
+
+                if (!await read)
+                    break;
+
+                while (client.Out.Reader.TryRead(out var response))
+                    await responseStream.WriteAsync(response);
+            }
 
             pumpCts.Cancel();
             try
@@ -172,7 +220,12 @@ public sealed class CaptureGrpcService : CaptureEngineService.CaptureEngineServi
     }
 
     public override Task<StatusResponse> GetStatus(StatusRequest request, ServerCallContext ctx)
-        => Task.FromResult(_status.Snapshot());
+    {
+        var response = _status.Snapshot();
+        response.MinSupportedProtocol = ProtocolVersion.Min;
+        response.MaxSupportedProtocol = ProtocolVersion.Current;
+        return Task.FromResult(response);
+    }
 
     /// <summary>
     /// Cancellation reaches us either as the token's own exception or, when gRPC has already

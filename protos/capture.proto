@@ -71,6 +71,7 @@ message RoiSpec {
 
 message Hello {
   string client_name = 1;  // e.g. "refinery"
+  uint32 protocol_version = 2;  // 0 = legacy client (pre-versioning); engine treats 0 as 1
 }
 
 // FULL replacement of the client's ROI set (idempotent; empty list = heartbeat-only client).
@@ -155,7 +156,16 @@ message TickResult {
 message TrackResponse {
   oneof msg {
     TickResult tick = 1;
+    HelloAck hello_ack = 2;  // sent exactly once, before first tick, in response to Hello
   }
+}
+
+message HelloAck {
+  uint32 negotiated_protocol_version = 1;
+  string engine_version = 2;
+  uint32 frame_width = 3;  // current frame dims so plugin needn't wait for first tick
+  uint32 frame_height = 4;
+  bool replay_mode = 5;
 }
 
 // ---------- unary ----------
@@ -187,4 +197,6 @@ message StatusResponse {
   bool replay_mode = 5;
   string ocr_language = 6;
   repeated string connected_clients = 7;
+  uint32 min_supported_protocol = 8;
+  uint32 max_supported_protocol = 9;
 }
