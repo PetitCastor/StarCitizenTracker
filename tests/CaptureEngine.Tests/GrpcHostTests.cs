@@ -1,6 +1,5 @@
 using CaptureContracts.Proto;
 using CaptureEngine.Grpc;
-using Common;
 using Grpc.Core;
 using Microsoft.AspNetCore.Builder;
 using TrackerSdk;

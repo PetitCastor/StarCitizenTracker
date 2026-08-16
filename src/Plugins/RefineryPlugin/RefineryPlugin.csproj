@@ -12,7 +12,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\CaptureContracts\CaptureContracts.csproj" />
-    <ProjectReference Include="..\..\Common\Common.csproj" />
     <ProjectReference Include="..\..\TrackerSdk\TrackerSdk.csproj" />
   </ItemGroup>
 

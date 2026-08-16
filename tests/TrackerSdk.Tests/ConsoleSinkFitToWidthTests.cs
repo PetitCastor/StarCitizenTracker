@@ -1,7 +1,7 @@
-using Common;
+using TrackerSdk;
 using Xunit;
 
-namespace Common.Tests;
+namespace TrackerSdk.Tests;
 
 public class ConsoleSinkFitToWidthTests
 {

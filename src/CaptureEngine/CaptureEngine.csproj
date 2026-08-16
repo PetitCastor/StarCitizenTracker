@@ -18,9 +18,11 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
+  <!-- Contracts only. The engine deliberately does NOT reference TrackerSdk: the dependency arrow
+       runs SDK -> contracts, and after the repo split (SOW-10/11) the SDK is a package published
+       FROM here. That is why Core/ConsoleSink.cs is a fork rather than a shared type. -->
   <ItemGroup>
     <ProjectReference Include="..\CaptureContracts\CaptureContracts.csproj" />
-    <ProjectReference Include="..\Common\Common.csproj" />
   </ItemGroup>
 
   <ItemGroup>

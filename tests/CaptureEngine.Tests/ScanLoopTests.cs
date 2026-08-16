@@ -1,6 +1,5 @@
 using System.Threading.Channels;
 using CaptureContracts.Proto;
-using Common;
 using Xunit;
 
 namespace CaptureEngine.Tests;

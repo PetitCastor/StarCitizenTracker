@@ -1,4 +1,3 @@
-using Common;
 using Windows.Graphics.Imaging;
 
 namespace CaptureEngine;
