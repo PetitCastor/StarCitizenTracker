@@ -98,6 +98,32 @@ public class ScanLoopTests
     }
 
     [Fact]
+    public async Task RunAsync_ManualFrameHandler_ReceivesTheManualTickFrame()
+    {
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var sink = new ConsoleSink();
+        var harness = NewHarness(sink);
+        using var source = harness.Source;
+        using var loop = harness.Loop;
+
+        (int Width, int Height)? dumpedSize = null;
+        harness.Loop.TriggerManual(frame =>
+        {
+            dumpedSize = (frame.PixelWidth, frame.PixelHeight);
+            return Task.CompletedTask;
+        });
+
+        var client = harness.Registry.Register(replayMode: true);
+        client.SetRois(new RoiSetUpdate { Rois = { EngineTestFixtures.PanelStateRoi() } });
+
+        var ticks = await RunAndCollectAsync(harness, client, cts.Token);
+
+        var manualTick = Assert.Single(ticks, tick => tick.Manual);
+        Assert.NotNull(dumpedSize);
+        Assert.Equal(((int)manualTick.FrameWidth, (int)manualTick.FrameHeight), dumpedSize.Value);
+    }
+
+    [Fact]
     public async Task RunAsync_WithOneUnreadableRoi_FailsOnlyThatRoi()
     {
         using var cts = new CancellationTokenSource(TestTimeout);
