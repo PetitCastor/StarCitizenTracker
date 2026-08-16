@@ -15,7 +15,8 @@ namespace CaptureEngine;
 /// </summary>
 internal sealed class ScanLoop : IDisposable
 {
-    /// <summary>Retry cadence while the screen is idle and WGC produces no new frames (as TrackerHost).</summary>
+    /// <summary>Retry cadence while the screen is idle and WGC produces no new frames (carried over
+    /// from the monolith's scan loop).</summary>
     private static readonly TimeSpan IdleRetry = TimeSpan.FromMilliseconds(200);
 
     /// <summary>Hand-edited config can hold 0; never let that become a tight OCR loop.</summary>

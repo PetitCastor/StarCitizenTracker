@@ -1,7 +1,3 @@
-// TRANSITIONAL DUPLICATE of src/TrackingService/Trackers/RefineryParser.cs. The monolith stays
-// untouched until ENGINE-SPLIT TASK-8, which deletes its refinery path; until then both copies are
-// live and must be edited together. The only difference is the namespace and that OcrRegionResult
-// now comes from CaptureContracts (the identical type).
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;

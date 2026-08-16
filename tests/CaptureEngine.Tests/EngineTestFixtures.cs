@@ -14,7 +14,7 @@ internal static class EngineTestFixtures
     /// <summary>Three frames copied from the monolith's refinery-confirm replay corpus.</summary>
     public const string ReplayDir = "Fixtures/engine-smoke";
 
-    /// <summary>PanelStateRoi from RefineryTracker: SETUP | PROCESSING | COMPLETED.</summary>
+    /// <summary>The refinery panel-state ROI: SETUP | PROCESSING | COMPLETED.</summary>
     public static RoiSpec PanelStateRoi(string id = "panel") => new()
     {
         Id = id,

@@ -1,8 +1,3 @@
-// TRANSITIONAL DUPLICATE of src/TrackingService/Core/MonitorCapture.cs, byte-identical apart
-// from the namespace. Nothing references this copy yet — the engine picks it up in
-// ENGINE-SPLIT TASK-3, and TASK-8 deletes the monolith's copy in favour of it. Until then both
-// are live and must be edited together. No parity test: capture/enumeration is WGC/Win32
-// interop with no pure logic to assert on without a live display.
 using System.Runtime.InteropServices;
 using Windows.Graphics;
 using Windows.Graphics.Capture;

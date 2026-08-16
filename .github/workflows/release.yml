@@ -32,21 +32,44 @@ jobs:
           echo "VERSION=0.$next.0" >> "$GITHUB_ENV"
           echo "TAG=v0.$next.0" >> "$GITHUB_ENV"
 
-      - name: Publish single-file exe
+      # Three exes now, not one: the engine owns capture/OCR and each plugin is its own process.
+      # Published to separate folders because single-file publishes of different projects would
+      # otherwise fight over the shared runtime files landing in one output directory.
+      - name: Publish CaptureEngine
         run: >
-          dotnet publish src/TrackingService/TrackingService.csproj
+          dotnet publish src/CaptureEngine/CaptureEngine.csproj
           -c Release -r win-x64 --self-contained true
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:Version=${{ env.VERSION }}
-          -o publish
+          -o publish/CaptureEngine
+
+      - name: Publish MissionPlugin
+        run: >
+          dotnet publish src/Plugins/MissionPlugin/MissionPlugin.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:Version=${{ env.VERSION }}
+          -o publish/MissionPlugin
+
+      - name: Publish RefineryPlugin
+        run: >
+          dotnet publish src/Plugins/RefineryPlugin/RefineryPlugin.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:Version=${{ env.VERSION }}
+          -o publish/RefineryPlugin
 
       - name: Create release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >
           gh release create "${{ env.TAG }}"
-          "publish/TrackingService.exe"
+          "publish/CaptureEngine/CaptureEngine.exe"
+          "publish/MissionPlugin/MissionPlugin.exe"
+          "publish/RefineryPlugin/RefineryPlugin.exe"
           --title "${{ env.TAG }}"
           --generate-notes
           --target ${{ github.sha }}

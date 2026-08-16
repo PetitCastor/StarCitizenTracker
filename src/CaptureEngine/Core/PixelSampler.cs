@@ -1,9 +1,3 @@
-// TRANSITIONAL DUPLICATE of src/TrackingService/Core/PixelSampler.cs, identical apart from the
-// namespace and the internal Bgra/Stride accessors added for ENGINE-SPLIT TASK-3 (the scan loop
-// puts the raw buffer on the wire for ROI_MODE_PIXELS; the monolith samples it in-process and has
-// no reason to expose it). TASK-8 deletes the monolith's copy in favour of this one. Until then
-// both are live and must be edited together. No parity test: AveragePatch needs a real
-// SoftwareBitmap crop to exercise, which the monolith's suite doesn't cover in isolation either.
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
 

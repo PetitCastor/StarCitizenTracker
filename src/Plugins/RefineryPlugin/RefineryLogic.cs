@@ -140,13 +140,13 @@ public sealed class RefineryLogic
 
     public async Task OnTickAsync(TickData tick, CancellationToken ct = default)
     {
-        // Manual first, then the normal scan — the same order TrackerHost used when a hotkey press
+        // Manual first, then the normal scan — the order the monolith used when a hotkey press
         // was queued, so a press during a panel transition still forces the accumulator out first.
         if (tick.Manual)
             OnManualTrigger(tick);
 
         // The monolith read the state header and the modal before it touched any state at all, so
-        // an OCR failure on either aborted the whole tick (TrackerHost caught it) and nothing moved.
+        // an OCR failure on either aborted the whole tick (its host caught it) and nothing moved.
         // Here a failure arrives as a per-ROI flag and the ROI still reads as empty text — which is
         // indistinguishable from a closed panel and from a dismissed modal, and the state machine
         // acts on both readings: an errored panel after a CANCEL looks like the panel closing and

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Excludes files that are pure OS/hardware or process interop (Win32 capture, WGC frame pump,
+  file/JSON I/O, the named-pipe channel, each exe's entry point) from the coverage gate. These
+  have no branching business logic worth pinning with unit tests and can't run without a live
+  display or a second process; they're verified manually and via the replay/parity regression
+  tests instead. Excluding a file only affects the aggregate percentage, never whether anything
+  in it gets tested.
+
+  Everything else stays gated — the contracts, the plugins' parser/state-machine/ledger code, the
+  engine's scan loop, subscription registry, gRPC service, OCR pipeline and hotkey parsing, and
+  the SDK's tick mapping.
+
+  Carried over from the monolith's tests/TrackingService.Tests/coverlet.runsettings and re-pointed
+  at the engine/plugin layout after ENGINE-SPLIT TASK-8 retired src/TrackingService. The list is
+  the old one with three deliberate adjustments, each noted because the layout forced a choice:
+
+  - Trackers/TrackerHost.cs and Trackers/FrameDumpTracker.cs are gone with the files. ScanLoop,
+    which replaced TrackerHost, is directly tested and therefore stays gated.
+  - Core/ProbeConfig.cs became Core/EngineConfig.cs, still excluded — it is the same
+    exists/write-defaults/deserialize body. The plugins' MissionConfig.cs and RefineryConfig.cs
+    are NOT excluded despite the same shape: RefineryConfig.ResolveLedgerPath carries the rule
+    that keeps a replay from writing into real order history, and LedgerTargetTests pins it.
+  - Core/LiveFrameSource.cs is added: it is the WGC frame pump extracted out of the monolith's
+    MonitorCapture path, and like MonitorCapture it cannot run without a live capture session.
+
+  TASK-8's brief also listed Core/HotkeyListener.cs and Core/OcrPipeline.cs as process-edge files
+  to exclude. They are deliberately NOT excluded, because the same task moved 28 tests onto their
+  pure helpers (ParseHotkey, EffectiveScale, CropAndScale, the language diagnostics). Excluding
+  them would hide the most-tested arithmetic in the engine from the gate, which contradicts the
+  instruction to keep the previously-gated bar unchanged — the monolith gated both files too.
+  They read low (mixed pure helpers plus OS-bound async methods); that is expected, not a gap.
+
+  As before, there is no numeric threshold here: the gate is this exclusion policy, and the bar is
+  read off the aggregate.
+
+  Usage (from the repo root):
+    dotnet test StarCitizenTracker.slnx --settings coverlet.runsettings --collect:"XPlat Code Coverage"
+-->
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+          <ExcludeByFile>
+            **/Core/CaptureInterop.cs,
+            **/Core/MonitorCapture.cs,
+            **/Core/LiveFrameSource.cs,
+            **/Core/FrameSaver.cs,
+            **/Core/EngineConfig.cs,
+            **/ConsoleSink.cs,
+            **/NamedPipeChannel.cs,
+            **/Metrics/MetricsSampler.cs,
+            **/Metrics/MetricsReporter.cs,
+            **/Program.cs
+          </ExcludeByFile>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

@@ -4,10 +4,9 @@ using Xunit;
 namespace CaptureEngine.Tests;
 
 /// <summary>
-/// Parity with the monolith's MetricsFormatterTests: same inputs, same expected outputs, on
-/// the ported MetricsFormatter. If these ever disagree the two copies have drifted — which CI
-/// can only catch because it builds and tests the whole solution. Transitional, ends at
-/// ENGINE-SPLIT TASK-8.
+/// The monolith's MetricsFormatterTests, now the only copy: same inputs, same expected outputs, on
+/// the engine's MetricsFormatter. The exact strings are the contract the status line is read
+/// against, so they stay as accumulated rather than re-derived from the formatter.
 /// </summary>
 public class MetricsFormatterTests
 {

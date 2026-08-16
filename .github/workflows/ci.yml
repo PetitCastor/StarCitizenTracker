@@ -19,10 +19,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # Whole solution, not just the monolith's test project: CaptureContracts carries the wire
-      # contract (protoc codegen included, the most breakable part) and the parity tests that
-      # detect drift between the transitional duplicates. Neither is worth anything if a green
-      # CI can merge without compiling them.
+      # Whole solution in one shot: the wire contract (protoc codegen included, the most breakable
+      # part), the engine, both plugins and all five test projects. A green CI that skipped any of
+      # them would be merging a split that no longer joins back up.
       - name: Restore
         run: dotnet restore StarCitizenTracker.slnx
 

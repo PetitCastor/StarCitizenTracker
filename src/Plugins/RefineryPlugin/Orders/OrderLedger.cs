@@ -1,6 +1,3 @@
-// TRANSITIONAL DUPLICATE of src/TrackingService/Orders/OrderLedger.cs. The monolith stays untouched
-// until ENGINE-SPLIT TASK-8, which deletes its refinery path; until then both copies are live and
-// must be edited together.
 using System.Text.Json;
 using System.Text.Json.Serialization;
 

@@ -106,7 +106,7 @@ while (true)
 
         await foreach (var tick in session.Ticks(cts.Token))
         {
-            // As TrackerHost did per tracker: one bad tick must not end the run. A genuine
+            // As the monolith did per tracker: one bad tick must not end the run. A genuine
             // transport failure is not swallowed — the next read from the stream raises it
             // again and the reconnect below handles it.
             try
