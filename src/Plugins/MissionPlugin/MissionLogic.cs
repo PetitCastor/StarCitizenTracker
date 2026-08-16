@@ -21,7 +21,9 @@ public static class Rois
     public static readonly RoiSubscription Pane =
         new("pane", new RoiRect(860, 180, 1560, 1010), 2.0, RoiKind.Text);
 
-    public static IReadOnlyList<RoiSubscription> All => [Tab, Pane];
+    // A field, not an expression-bodied property: the set never changes, and `=> [Tab, Pane]`
+    // would build a fresh array on every read.
+    public static readonly IReadOnlyList<RoiSubscription> All = [Tab, Pane];
 }
 
 /// <summary>
@@ -62,13 +64,13 @@ public sealed partial class MissionLogic
         _dumpFrame = dumpFrame;
     }
 
-    public async Task OnTickAsync(TickData tick)
+    public async Task OnTickAsync(TickData tick, CancellationToken ct = default)
     {
         // Manual first, then the normal scan — the same order TrackerHost used when a hotkey
         // press was queued, so a press during a counter change still captures the pane as it
         // was before the change is acted on.
         if (tick.Manual)
-            await CapturePaneAsync(tick, TriggerKind.Manual);
+            await CapturePaneAsync(tick, TriggerKind.Manual, ct);
 
         var tabText = tick.Text("tab");
 
@@ -95,7 +97,7 @@ public sealed partial class MissionLogic
             _sink.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] [{Name}] counter {_lastCounter ?? "none"} -> {counter}");
 
             if (isNewMission)
-                await CapturePaneAsync(tick, TriggerKind.Auto);
+                await CapturePaneAsync(tick, TriggerKind.Auto, ct);
 
             _lastCounter = counter;
             _lastAcceptedCount = accepted;
@@ -119,22 +121,38 @@ public sealed partial class MissionLogic
     internal static bool IsNewMissionAccepted(int previousAccepted, int currentAccepted)
         => previousAccepted >= 0 && currentAccepted == previousAccepted + 1;
 
-    private async Task CapturePaneAsync(TickData tick, TriggerKind trigger)
+    private async Task CapturePaneAsync(TickData tick, TriggerKind trigger, CancellationToken ct)
     {
         var paneText = tick.Text("pane");
 
-        _emit(new TrackerRecord(DateTime.Now, Name, trigger, paneText));
+        // The tick's own timestamp, not DateTime.Now: the engine buffers a few ticks per client,
+        // so "when this was processed" can be a second or two after the frame it describes.
+        _emit(new TrackerRecord(tick.Timestamp, Name, trigger, paneText));
 
         if (_verbose)
             _sink.WriteLine($"[{Name}] pane: {paneText.Length} chars");
 
-        if (_dumpFrame is not null)
+        if (_dumpFrame is null)
+            return;
+
+        // The dump is a debugging aid, never the reason a capture counts: the record is already
+        // emitted. Letting a failure out here would abort OnTickAsync before the counter state
+        // advances, so the same accept would re-fire — and re-emit — on every following tick.
+        try
         {
             // The engine writes the PNG and hands back where it put it; null means it has not
             // scanned a frame yet, in which case there is nothing to sit the text beside.
             var pngPath = await _dumpFrame(Rois.Pane.Rect, "mission_pane");
             if (pngPath is not null)
-                await File.WriteAllTextAsync(Path.ChangeExtension(pngPath, ".txt"), paneText);
+                await File.WriteAllTextAsync(Path.ChangeExtension(pngPath, ".txt"), paneText, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _sink.WriteLine($"[{Name}] debug dump failed: {ex.Message}");
         }
     }
 }

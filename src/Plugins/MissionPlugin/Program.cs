@@ -15,13 +15,16 @@ var config = MissionConfig.Load(Path.Combine(AppContext.BaseDirectory, "config.j
 // CLI: --pipe <name> (overrides config), --verbose
 var verbose = args.Contains("--verbose", StringComparer.OrdinalIgnoreCase);
 
-string? ArgValue(string name) => args
-    .Select((a, i) => (a, i))
-    .Where(t => t.a.Equals(name, StringComparison.OrdinalIgnoreCase) && t.i + 1 < args.Length)
-    .Select(t => args[t.i + 1])
-    .FirstOrDefault();
+// -1 when absent. A flag with nothing after it is a typo worth reporting: silently falling back
+// to the config value would connect to a different engine than the one the user just named.
+var pipeArg = Array.FindIndex(args, a => a.Equals("--pipe", StringComparison.OrdinalIgnoreCase));
+if (pipeArg >= 0 && pipeArg + 1 >= args.Length)
+{
+    Console.Error.WriteLine("--pipe needs a pipe name after it.");
+    return 1;
+}
 
-var pipeName = ArgValue("--pipe") ?? config.PipeName;
+var pipeName = pipeArg >= 0 ? args[pipeArg + 1] : config.PipeName;
 if (string.IsNullOrWhiteSpace(pipeName))
 {
     Console.Error.WriteLine("Pipe name must not be blank (set \"pipeName\" in config.json or pass --pipe).");
@@ -70,6 +73,9 @@ sink.WriteLine();
 // this, is what ends the wait.
 var engineWait = TimeSpan.FromDays(1);
 
+// Breathing room between a lost session and the next dial; see the RpcException branch below.
+var reconnectDelay = TimeSpan.FromMilliseconds(500);
+
 // Announced once per disconnected stretch rather than per retry: a plugin started before the
 // engine would otherwise scroll the same line every few seconds.
 var announcedWait = false;
@@ -99,11 +105,33 @@ while (true)
         sink.WriteLine();
 
         await foreach (var tick in session.Ticks(cts.Token))
-            await logic.OnTickAsync(tick);
+        {
+            // As TrackerHost did per tracker: one bad tick must not end the run. A genuine
+            // transport failure is not swallowed — the next read from the stream raises it
+            // again and the reconnect below handles it.
+            try
+            {
+                await logic.OnTickAsync(tick, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                sink.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {MissionLogic.Name}: tick failed: {ex.Message}");
+            }
+        }
     }
     catch (OperationCanceledException)
     {
         break; // our own Ctrl+C: the channel maps a cancelled call to this, not RpcException
+    }
+    catch (RpcException) when (cts.IsCancellationRequested)
+    {
+        // Ctrl+C again: the channel's OCE mapping covers the call, but a write already in flight
+        // on the request stream can still surface as CANCELLED. Not an engine failure.
+        break;
     }
     catch (TimeoutException)
     {
@@ -115,6 +143,13 @@ while (true)
         // logic's counter state is deliberately kept: the missions it already saw are still
         // accepted, and the first tab read after reconnect is a re-sighting, not an accept.
         sink.WriteLine("engine connection lost — reconnecting");
+
+        // Paced: WaitForEngineAsync returns immediately whenever GetStatus answers, so an engine
+        // that is up but cannot serve a Track stream (mid-shutdown, for one) would otherwise spin
+        // this loop with no delay at all.
+        try { await Task.Delay(reconnectDelay, cts.Token); }
+        catch (OperationCanceledException) { break; }
+
         continue;
     }
 

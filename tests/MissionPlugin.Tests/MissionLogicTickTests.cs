@@ -115,6 +115,51 @@ public class MissionLogicTickTests
     }
 
     /// <summary>
+    /// A record dates the frame, not the moment the plugin got round to it. The engine buffers a
+    /// few ticks per client and this handler awaits an RPC, so processing time can trail the
+    /// capture by seconds — and a mission's timestamp is the thing a later phase will join on.
+    /// </summary>
+    [Fact]
+    public async Task Record_IsStampedWithTheTicksTimeNotTheProcessingTime()
+    {
+        using var sink = new ConsoleSink();
+        var records = new List<TrackerRecord>();
+        var logic = new MissionLogic(records.Add, sink, verbose: false, dumpFrame: null);
+
+        var tick = Tick("no counter", "MISSION: Escort", manual: true,
+            at: DateTimeOffset.UtcNow.AddMinutes(-5));
+
+        await logic.OnTickAsync(tick);
+
+        Assert.Equal(tick.Timestamp, Assert.Single(records).Timestamp);
+    }
+
+    /// <summary>
+    /// A debug dump that throws must not take the capture down with it. The record is already
+    /// emitted when the dump runs, and letting the failure out would abort the tick before the
+    /// counter state advances — so the same accept would re-fire, and re-emit, on every tick
+    /// that followed.
+    /// </summary>
+    [Fact]
+    public async Task WhenTheDebugDumpFails_TheAcceptStillCountsOnceAndDoesNotRefire()
+    {
+        using var sink = new ConsoleSink();
+        var records = new List<TrackerRecord>();
+        var logic = new MissionLogic(records.Add, sink, verbose: false,
+            dumpFrame: (_, _) => throw new IOException("no space left on device"));
+
+        await logic.OnTickAsync(Tick("ACCEPTED (2/5)", "pane"));
+        await logic.OnTickAsync(Tick("ACCEPTED (3/5)", "MISSION: Deliver crates"));
+
+        // The counter has not moved again, so the next tick must be silent.
+        await logic.OnTickAsync(Tick("ACCEPTED (3/5)", "MISSION: Deliver crates"));
+
+        var record = Assert.Single(records);
+        Assert.Equal(TriggerKind.Auto, record.Trigger);
+        Assert.Equal("MISSION: Deliver crates", record.RawText);
+    }
+
+    /// <summary>
     /// No frame scanned yet on the engine side: DumpFrame answers null, and there is then no file
     /// to sit the text beside. The capture itself still counts — the text is in the record.
     /// </summary>

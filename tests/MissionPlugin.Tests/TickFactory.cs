@@ -16,11 +16,14 @@ internal static class TickFactory
     // Interlocked because xUnit runs test classes in parallel and this factory is shared.
     private static long _seq;
 
-    public static TickData Tick(string tabText, string paneText = "", bool manual = false)
+    /// <param name="at">When the engine scanned the frame. Defaults to now; pass an older instant
+    /// to tell the frame's own time apart from the time the tick is processed.</param>
+    public static TickData Tick(string tabText, string paneText = "", bool manual = false,
+        DateTimeOffset? at = null)
     {
         var proto = new TickResult
         {
-            TimestampMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            TimestampMs = (at ?? DateTimeOffset.UtcNow).ToUnixTimeMilliseconds(),
             FrameSeq = (ulong)Interlocked.Increment(ref _seq),
             FrameWidth = 2560,
             FrameHeight = 1440,
