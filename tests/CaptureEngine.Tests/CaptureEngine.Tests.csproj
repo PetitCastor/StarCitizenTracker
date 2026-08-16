@@ -29,6 +29,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CaptureEngine\CaptureEngine.csproj" />
     <ProjectReference Include="..\..\src\CaptureContracts\CaptureContracts.csproj" />
+    <!-- The SDK is driven against the in-proc engine here: this is the only project that can own
+         both ends of the pipe, so the client's own tests live with the engine's. -->
+    <ProjectReference Include="..\..\src\TrackerSdk\TrackerSdk.csproj" />
   </ItemGroup>
 
   <!-- Replay corpus for the scan-loop tests: copied next to the test assembly so the relative

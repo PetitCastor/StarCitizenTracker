@@ -1,4 +1,6 @@
+using CaptureContracts;
 using CaptureContracts.Proto;
+using TrackerSdk;
 
 namespace CaptureEngine.Tests;
 
@@ -38,6 +40,29 @@ internal static class EngineTestFixtures
         Scale = 2.0,
         Mode = RoiMode.Text,
     };
+
+    /// <summary>
+    /// The same ROIs as the SDK expresses them. Derived from the proto factories above rather than
+    /// restated, so an engine test and an SDK test can never drift into asserting different
+    /// geometry while both claim to use "the panel ROI".
+    /// </summary>
+    public static RoiSubscription PanelStateSubscription(string id = "panel")
+        => ToSubscription(PanelStateRoi(id));
+
+    public static RoiSubscription ToggleStripSubscription(string id = "toggle")
+        => ToSubscription(ToggleStripRoi(id));
+
+    private static RoiSubscription ToSubscription(RoiSpec spec) => new(
+        spec.Id,
+        (spec.Rect ?? new Rect()).ToRoiRect(),
+        spec.Scale,
+        spec.Mode switch
+        {
+            RoiMode.Text => RoiKind.Text,
+            RoiMode.Detailed => RoiKind.Detailed,
+            RoiMode.Pixels => RoiKind.Pixels,
+            _ => throw new ArgumentOutOfRangeException(nameof(spec), spec.Mode, "Unknown ROI mode."),
+        });
 
     public static string[] ExpectedFrameNames() => Directory
         .GetFiles(ReplayDir, "*.png")
