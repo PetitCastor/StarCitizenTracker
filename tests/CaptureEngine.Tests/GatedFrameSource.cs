@@ -20,8 +20,11 @@ internal sealed class GatedFrameSource : IFrameSource
     private readonly SemaphoreSlim _gate = new(0);
     private int _next;
 
+    // Enumerated and decoded through ReplayFrameSource: the gate and the cycling are the only
+    // things this source is meant to do differently, and a private copy of the corpus handling
+    // would let these tests validate a pixel path production does not use.
     public GatedFrameSource(string directory)
-        => _frames = Directory.GetFiles(directory, "*.png").OrderBy(f => f, StringComparer.Ordinal).ToArray();
+        => _frames = ReplayFrameSource.EnumerateCorpus(directory);
 
     public bool IsReplay => true;
 
@@ -32,11 +35,7 @@ internal sealed class GatedFrameSource : IFrameSource
     {
         await _gate.WaitAsync(ct);
 
-        var path = _frames[_next++ % _frames.Length];
-
-        using var fileStream = File.OpenRead(path);
-        var decoder = await BitmapDecoder.CreateAsync(fileStream.AsRandomAccessStream());
-        return await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore);
+        return await ReplayFrameSource.DecodeFrameAsync(_frames[_next++ % _frames.Length]);
     }
 
     public void Dispose() => _gate.Dispose();

@@ -97,6 +97,17 @@ message OcrLine {
   repeated OcrWord words = 2;
 }
 
+// Which payload fields the engine actually filled, echoed back so a client can tell a TEXT
+// result from a PIXELS one. Deliberately NOT RoiMode: proto3 cannot distinguish "unset" from the
+// zero value, and RoiMode's zero is ROI_MODE_TEXT — reusing it would make an engine that predates
+// this field claim every result was text. Here the zero means exactly that: unknown.
+enum RoiResultKind {
+  ROI_RESULT_KIND_UNSPECIFIED = 0;
+  ROI_RESULT_KIND_TEXT = 1;
+  ROI_RESULT_KIND_DETAILED = 2;
+  ROI_RESULT_KIND_PIXELS = 3;
+}
+
 message RoiResult {
   string roi_id = 1;
   Rect frame_rect = 2;         // FRAME space: the rect actually read (after scaling + clamping)
@@ -124,6 +135,12 @@ message RoiResult {
   // ProtoMapping throws rather than hand back a degraded result.
   bool error = 10;
   string error_message = 11;
+
+  // Which of the payload blocks above is meaningful. Unset on an error result (nothing was
+  // filled) and on results from an engine older than this field. Clients use it to reject a
+  // mode mixup: the unfilled fields of the OTHER mode are all proto3 defaults, which read as a
+  // successful empty panel or a valid 0x0 pixel patch rather than as the mistake they are.
+  RoiResultKind kind = 12;
 }
 
 message TickResult {

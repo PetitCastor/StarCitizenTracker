@@ -45,4 +45,27 @@ public sealed record RoiSubscription(string Id, RoiRect Rect, double Scale, RoiK
             _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, $"Unknown ROI kind for '{Id}'."),
         },
     };
+
+    /// <summary>
+    /// The inverse of <see cref="ToProto"/>, for tests that state a ROI once as a RoiSpec and need
+    /// the SDK's view of the same region.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than in the test project so both directions of the mode mapping sit in one
+    /// file: split across assemblies, a new <see cref="RoiKind"/> can be added to one switch and
+    /// missed in the other, and the half that was missed throws only once a fixture happens to use
+    /// the new kind.
+    /// </remarks>
+    internal static RoiSubscription FromProto(RoiSpec spec) => new(
+        spec.Id,
+        (spec.Rect ?? new Rect()).ToRoiRect(),
+        spec.Scale,
+        spec.Mode switch
+        {
+            RoiMode.Text => RoiKind.Text,
+            RoiMode.Detailed => RoiKind.Detailed,
+            RoiMode.Pixels => RoiKind.Pixels,
+            _ => throw new ArgumentOutOfRangeException(nameof(spec), spec.Mode,
+                $"Unknown ROI mode for '{spec.Id}'."),
+        });
 }

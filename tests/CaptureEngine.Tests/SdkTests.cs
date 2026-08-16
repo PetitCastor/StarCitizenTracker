@@ -63,6 +63,26 @@ public class SdkTests
     }
 
     /// <summary>
+    /// Ctrl+C during the wait. A plugin host shuts down on OperationCanceledException; if its own
+    /// cancellation came back as RpcException(Cancelled) instead, the host would take a clean stop
+    /// for an engine failure — and the deadline-bounded attempt is where nearly all of the wait is
+    /// actually spent, so this is the likely place for it to land.
+    /// </summary>
+    [Fact]
+    public async Task WaitForEngineAsync_WhenTheCallerCancels_ThrowsOperationCanceled()
+    {
+        using var cts = new CancellationTokenSource();
+        using var client = new CaptureClient(NewPipeName());
+
+        // Long budget against a pipe nobody serves: the wait is parked inside the RPC, not
+        // between polls, when the token fires.
+        var wait = client.WaitForEngineAsync(TimeSpan.FromMinutes(1), cts.Token);
+        cts.CancelAfter(TimeSpan.FromMilliseconds(200));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => wait);
+    }
+
+    /// <summary>
     /// The shape every plugin will have: connect, subscribe a mixed ROI set, consume ticks until
     /// the engine says there are no more. The ending matters as much as the ticks — a plugin runs
     /// its finalisers off the stream completing, so a replay that finished without reaching the
@@ -173,18 +193,19 @@ public class SdkTests
             await session.UpdateRoisAsync([EngineTestFixtures.ToggleStripSubscription()]);
 
             // The update is applied by the engine's request pump, which runs independently of the
-            // scan loop: a frame already in flight may still carry the old set, so the assertion
-            // is on a later tick, not the next one.
-            TickData? afterUpdate = null;
-            for (var i = 0; i < 3; i++)
+            // scan loop, so no fixed number of ticks is both quick and safe: a frame already in
+            // flight still carries the old set, and on a loaded machine the pump may not have been
+            // scheduled at all yet. Read until the new set shows up rather than guessing how long
+            // that takes; the enumerator's token bounds the wait, so a set that never arrives
+            // fails the test instead of looping forever.
+            TickData afterUpdate;
+            do
             {
                 source.Release();
                 Assert.True(await ticks.MoveNextAsync());
                 afterUpdate = ticks.Current;
             }
-
-            Assert.NotNull(afterUpdate);
-            Assert.NotNull(afterUpdate.Pixels("toggle"));
+            while (afterUpdate.Pixels("toggle") is null);
 
             // Absent, not merely empty: a full replacement that behaved as a merge would still
             // answer Text("panel") with real OCR, and Ocr/Error tell absence from failure.
@@ -222,6 +243,7 @@ public class SdkTests
         proto.Results.Add(new RoiResult
         {
             RoiId = "panel",
+            Kind = RoiResultKind.Text,
             FrameRect = new RoiRect(900, 265, 250, 55).ToProto(),
             EffectiveScale = 3.0,
             Text = "PROCESSING",
@@ -230,6 +252,7 @@ public class SdkTests
         proto.Results.Add(new RoiResult
         {
             RoiId = "toggle",
+            Kind = RoiResultKind.Pixels,
             FrameRect = new RoiRect(640, 700, 2, 2).ToProto(),
             EffectiveScale = 1.0,
             PixelsBgra = Google.Protobuf.ByteString.CopyFrom(new byte[2 * 2 * 4]),
@@ -272,5 +295,83 @@ public class SdkTests
         Assert.Equal(string.Empty, tick.Text("offscreen"));
         Assert.Null(tick.Ocr("offscreen"));
         Assert.Null(tick.Pixels("offscreen"));
+    }
+
+    /// <summary>
+    /// Reading a ROI as the mode it was not subscribed as. The unfilled half of a result is all
+    /// proto3 defaults, and those defaults are readable: without the kind check a text ROI hands
+    /// back a valid 0x0 sampler that answers black forever, so a colour probe registered under
+    /// the wrong RoiKind reads "off" for the life of the process with nothing flagging it.
+    /// </summary>
+    [Fact]
+    public void From_OnAModeMixup_AnswersNothingRatherThanAnEmptyReading()
+    {
+        var proto = new TickResult { FrameWidth = 2560, FrameHeight = 1440 };
+
+        proto.Results.Add(new RoiResult
+        {
+            RoiId = "probe_as_text",
+            Kind = RoiResultKind.Text,
+            FrameRect = new RoiRect(640, 700, 40, 40).ToProto(),
+            EffectiveScale = 1.0,
+        });
+
+        proto.Results.Add(new RoiResult
+        {
+            RoiId = "panel_as_pixels",
+            Kind = RoiResultKind.Pixels,
+            FrameRect = new RoiRect(900, 265, 2, 2).ToProto(),
+            EffectiveScale = 1.0,
+            PixelsBgra = Google.Protobuf.ByteString.CopyFrom(new byte[2 * 2 * 4]),
+            PixelsStride = 2 * 4,
+            PixelsWidth = 2,
+            PixelsHeight = 2,
+        });
+
+        var tick = TickData.From(proto);
+
+        Assert.Null(tick.Pixels("probe_as_text"));
+        Assert.Null(tick.Ocr("panel_as_pixels"));
+
+        // A mixup is the client's bug, not a ROI the engine failed to read: Error stays null, as
+        // TickData.Error documents for anything the boundary rejects rather than the engine did.
+        Assert.Null(tick.Error("probe_as_text"));
+        Assert.Null(tick.Error("panel_as_pixels"));
+
+        // The correctly-read halves are untouched.
+        Assert.NotNull(tick.Ocr("probe_as_text"));
+        Assert.NotNull(tick.Pixels("panel_as_pixels"));
+    }
+
+    /// <summary>
+    /// Disposing a session twice, which is what an `await using` plus an explicit cleanup path
+    /// produces — TrackAsync's own failure handler is one. Cleanup code that throws is worse than
+    /// no cleanup code, because it masks whatever sent the plugin down that path.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task DisposeAsync_CalledTwice_IsQuiet()
+    {
+        using var cts = new CancellationTokenSource(TestTimeout);
+        using var sink = new ConsoleSink();
+
+        var pipeName = NewPipeName();
+        await using var engine = EngineHost.Create(pipeName, new EngineConfig(), new OcrPipeline(),
+            new ReplayFrameSource(EngineTestFixtures.ReplayDir), sink, verbose: false);
+        await engine.StartAsync(cts.Token);
+
+        using var client = new CaptureClient(pipeName);
+        await client.WaitForEngineAsync(ConnectTimeout, cts.Token);
+
+        var session = await client.TrackAsync("disposer",
+            [EngineTestFixtures.PanelStateSubscription()], cts.Token);
+
+        await session.DisposeAsync();
+        await session.DisposeAsync();
+
+        // And the stream really is closed: a write after dispose is the caller's bug and must say
+        // so, rather than throwing out of the semaphore the first dispose used to destroy.
+        await Assert.ThrowsAsync<ObjectDisposedException>(
+            () => session.UpdateRoisAsync([EngineTestFixtures.ToggleStripSubscription()]));
     }
 }

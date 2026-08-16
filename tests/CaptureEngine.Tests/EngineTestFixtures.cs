@@ -1,4 +1,3 @@
-using CaptureContracts;
 using CaptureContracts.Proto;
 using TrackerSdk;
 
@@ -47,26 +46,14 @@ internal static class EngineTestFixtures
     /// geometry while both claim to use "the panel ROI".
     /// </summary>
     public static RoiSubscription PanelStateSubscription(string id = "panel")
-        => ToSubscription(PanelStateRoi(id));
+        => RoiSubscription.FromProto(PanelStateRoi(id));
 
     public static RoiSubscription ToggleStripSubscription(string id = "toggle")
-        => ToSubscription(ToggleStripRoi(id));
+        => RoiSubscription.FromProto(ToggleStripRoi(id));
 
-    private static RoiSubscription ToSubscription(RoiSpec spec) => new(
-        spec.Id,
-        (spec.Rect ?? new Rect()).ToRoiRect(),
-        spec.Scale,
-        spec.Mode switch
-        {
-            RoiMode.Text => RoiKind.Text,
-            RoiMode.Detailed => RoiKind.Detailed,
-            RoiMode.Pixels => RoiKind.Pixels,
-            _ => throw new ArgumentOutOfRangeException(nameof(spec), spec.Mode, "Unknown ROI mode."),
-        });
-
-    public static string[] ExpectedFrameNames() => Directory
-        .GetFiles(ReplayDir, "*.png")
-        .OrderBy(f => f, StringComparer.Ordinal)
+    /// <summary>Corpus frames in the order the scan loop will hand them out.</summary>
+    public static string[] ExpectedFrameNames() => ReplayFrameSource
+        .EnumerateCorpus(ReplayDir)
         .Select(Path.GetFileName)
         .ToArray()!;
 }

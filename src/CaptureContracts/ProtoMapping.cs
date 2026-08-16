@@ -65,13 +65,17 @@ public static class ProtoMapping
     /// frame-space rect.
     /// </summary>
     /// <exception cref="RoiResultException">
-    /// The engine flagged the ROI as failed, or effective_scale is not positive. Both would
-    /// otherwise produce a result indistinguishable from a successful read of an empty panel;
-    /// see <see cref="TryToOcrRegionResult"/> for the skip-quietly path.
+    /// The engine flagged the ROI as failed, the result answers a PIXELS subscription, or
+    /// effective_scale is not positive. All three would otherwise produce a result
+    /// indistinguishable from a successful read of an empty panel; see
+    /// <see cref="TryToOcrRegionResult"/> for the skip-quietly path.
     /// </exception>
     public static OcrRegionResult ToOcrRegionResult(this RoiResult r)
     {
         ThrowIfEngineError(r);
+
+        if (r.Kind == RoiResultKind.Pixels)
+            throw WrongKind(r, "OCR");
 
         // effective_scale is engine output and is always > 0 on a successful result. A 0 here
         // means the engine never set the field, and ToFramePoint would divide by it: the double
@@ -107,15 +111,19 @@ public static class ProtoMapping
     /// frame_rect origin so callers keep addressing pixels in frame coordinates.
     /// </summary>
     /// <exception cref="RoiResultException">
-    /// The engine flagged the ROI as failed, or the buffer does not match the declared
-    /// geometry. stride/width/height/bytes are four independent wire fields with no
-    /// cross-check of their own; a truncated buffer or a stride that counts row padding the
-    /// engine never sent would surface much later as an IndexOutOfRangeException inside a
-    /// plugin parser, so the mismatch is caught here at the boundary instead.
+    /// The engine flagged the ROI as failed, the result answers a TEXT/DETAILED subscription,
+    /// or the buffer does not match the declared geometry. stride/width/height/bytes are four
+    /// independent wire fields with no cross-check of their own; a truncated buffer or a stride
+    /// that counts row padding the engine never sent would surface much later as an
+    /// IndexOutOfRangeException inside a plugin parser, so the mismatch is caught here at the
+    /// boundary instead.
     /// </exception>
     public static PixelPatchSampler ToPixelSampler(this RoiResult r)
     {
         ThrowIfEngineError(r);
+
+        if (r.Kind is RoiResultKind.Text or RoiResultKind.Detailed)
+            throw WrongKind(r, "pixel");
 
         var rect = r.FrameRect ?? new Rect();
         var bgra = r.PixelsBgra.ToByteArray();
@@ -191,4 +199,20 @@ public static class ProtoMapping
                 r.ErrorMessage.Length > 0 ? r.ErrorMessage : "the engine reported a ROI failure.",
                 reportedByEngine: true);
     }
+
+    /// <summary>
+    /// A result read as the mode it does not answer. Worth an exception rather than a best
+    /// effort because the fields of the mode that was NOT filled are all proto3 defaults, and
+    /// those defaults are indistinguishable from real readings: a PIXELS result read as OCR is
+    /// an empty panel, and a TEXT result read as pixels is a valid 0x0 patch whose every sample
+    /// clamps to black. Both keep a plugin's state machine running on a reading that never
+    /// existed, and neither sets <c>error</c>, so nothing else would ever flag it.
+    /// </summary>
+    /// <remarks><see cref="RoiResultKind.Unspecified"/> is not a mismatch — it is an engine
+    /// older than the field, and the checks below still cover a malformed payload.</remarks>
+    private static RoiResultException WrongKind(RoiResult r, string reading)
+        => new(r.RoiId,
+            $"result is {r.Kind} and cannot be read as {reading}; the subscription's RoiMode " +
+            $"does not match how '{r.RoiId}' is being looked up on the tick.",
+            reportedByEngine: false);
 }

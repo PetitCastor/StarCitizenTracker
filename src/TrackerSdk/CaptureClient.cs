@@ -35,15 +35,16 @@ public sealed class CaptureClient : IDisposable
     /// <summary>Polls GetStatus until the engine answers or the timeout elapses. Lets a plugin
     /// start before the engine without a crash-loop.</summary>
     /// <exception cref="TimeoutException">
-    /// The engine did not answer within <paramref name="timeout"/>. The last RPC failure is the
+    /// The engine did not answer within <paramref name="timeout"/>. The last failed attempt is the
     /// inner exception — a plugin that logs only the message would otherwise lose the difference
-    /// between "no engine on that pipe" and "engine answered with an error".
+    /// between "no engine on that pipe" (the attempt ran out its deadline) and "engine answered
+    /// with an error".
     /// </exception>
     /// <exception cref="OperationCanceledException"><paramref name="ct"/> fired.</exception>
     public async Task<StatusResponse> WaitForEngineAsync(TimeSpan timeout, CancellationToken ct)
     {
         var elapsed = Stopwatch.StartNew();
-        RpcException? last = null;
+        Exception? last = null;
 
         while (true)
         {
@@ -62,10 +63,18 @@ public sealed class CaptureClient : IDisposable
                 return await _client.GetStatusAsync(new StatusRequest(),
                     deadline: DateTime.UtcNow.Add(remaining), cancellationToken: ct);
             }
-            catch (RpcException e) when (!ct.IsCancellationRequested)
+            catch (Exception e) when (e is RpcException or OperationCanceledException
+                                      && !ct.IsCancellationRequested)
             {
                 // Every RPC failure means the same thing here — the engine is not serving yet.
                 // Which one it was is kept for the TimeoutException rather than acted on.
+                //
+                // OperationCanceledException is in that set because the channel sets
+                // ThrowOperationCanceledOnCancellation, which covers deadlines as well as tokens:
+                // an attempt that burned its slice of the budget arrives here as an OCE. The
+                // filter is what keeps the caller's own cancellation distinct — that one has
+                // ct.IsCancellationRequested set and must propagate, not be swallowed into a
+                // TimeoutException at the end of the loop.
                 last = e;
             }
 
@@ -78,10 +87,17 @@ public sealed class CaptureClient : IDisposable
     }
 
     /// <summary>Opens the Track stream, sends Hello + the initial ROI set, returns the session.</summary>
+    /// <param name="sessionCt">
+    /// Governs the whole subscription, not just this call: it is the Track call's own token, so
+    /// firing it later ends the stream and makes <see cref="TrackSession.Ticks"/> throw. Pass the
+    /// plugin's long-lived token. In particular do NOT reuse a startup-scoped source shared with
+    /// <see cref="WaitForEngineAsync"/> — its connect timeout would fire mid-session and read as
+    /// an unexplained engine disconnect.
+    /// </param>
     public async Task<TrackSession> TrackAsync(string clientName,
-        IReadOnlyList<RoiSubscription> rois, CancellationToken ct)
+        IReadOnlyList<RoiSubscription> rois, CancellationToken sessionCt)
     {
-        var session = new TrackSession(_client.Track(cancellationToken: ct));
+        var session = new TrackSession(_client.Track(cancellationToken: sessionCt));
         try
         {
             await session.SendHelloAsync(clientName);
@@ -133,11 +149,14 @@ public sealed class TrackSession : IAsyncDisposable
     private readonly SemaphoreSlim _writeGate = new(1, 1);
 
     private bool _requestStreamClosed;
+    private int _disposed;
 
     internal TrackSession(AsyncDuplexStreamingCall<TrackRequest, TrackResponse> call) => _call = call;
 
     /// <summary>Ticks as they arrive. Completes normally when the server ends the stream
-    /// (replay finished / engine shutdown); throws RpcException(Unavailable) if the pipe drops.</summary>
+    /// (replay finished / engine shutdown); throws RpcException(Unavailable) if the pipe drops,
+    /// and OperationCanceledException — not RpcException(Cancelled) — when either
+    /// <paramref name="ct"/> or the session's own token fires.</summary>
     public async IAsyncEnumerable<TickData> Ticks([EnumeratorCancellation] CancellationToken ct)
     {
         await foreach (var response in _call.ResponseStream.ReadAllAsync(ct))
@@ -166,6 +185,12 @@ public sealed class TrackSession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        // Idempotent: `await using` around the session plus an explicit cleanup on a failure path
+        // is an ordinary shape (TrackAsync itself does it), and the second call must not be the
+        // thing that throws.
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;
+
         await _writeGate.WaitAsync();
         try
         {
@@ -185,8 +210,13 @@ public sealed class TrackSession : IAsyncDisposable
             _writeGate.Release();
         }
 
+        // The gate is deliberately NOT disposed. A tracker thread may be parked in SendAsync's
+        // WaitAsync right now — the concurrency this class exists to serialise — and the Release
+        // above hands it the gate; disposing it here would make its finally-block Release throw
+        // from semaphore internals instead of letting SendAsync raise the ObjectDisposedException
+        // it means to. A SemaphoreSlim whose AvailableWaitHandle was never touched holds nothing
+        // but managed memory, so there is no leak to trade against that.
         _call.Dispose();
-        _writeGate.Dispose();
     }
 
     private async Task SendAsync(TrackRequest request)
