@@ -113,19 +113,14 @@ sink.WriteLine();
 // replay at a file it can read afterwards.
 await RefineryRunner.RunAsync(client, pipeName, status =>
 {
-    var throwaway = status.ReplayMode || !config.LedgerEnabled;
-    ledgerPath = ledgerOverride ?? (throwaway
-        ? Path.Combine(Path.GetTempPath(),
-            $"sc-tracker-{(status.ReplayMode ? "replay" : "ephemeral")}-{Guid.NewGuid():N}.jsonl")
-        : config.LedgerPath);
+    var target = LedgerTargetResolver.Resolve(
+        status.ReplayMode, config.LedgerEnabled, ledgerOverride, config.LedgerPath);
+    ledgerPath = target.Path;
 
     ledger = new OrderLedger(ledgerPath, sink.WriteLine);
     ledger.Load();
 
-    var ledgerNote = ledgerOverride is not null || !throwaway
-        ? ""
-        : status.ReplayMode ? " (replay — throwaway file)" : " (ledger disabled — throwaway file)";
-    sink.WriteLine($"Ledger:    {ledgerPath}{ledgerNote}");
+    sink.WriteLine($"Ledger:    {ledgerPath}{target.Note}");
 
     return new RefineryLogic(Emit, sink, verbose, dumpFrame, ledger);
 }, sink, cts.Token);
