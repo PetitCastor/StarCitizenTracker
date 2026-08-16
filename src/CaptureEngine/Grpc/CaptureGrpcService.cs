@@ -61,38 +61,103 @@ public sealed class CaptureGrpcService : CaptureEngineService.CaptureEngineServi
         // close. Its own token lets the response side end it.
         using var pumpCts = CancellationTokenSource.CreateLinkedTokenSource(ctx.CancellationToken);
 
+        // The handshake result travels beside the tick channel rather than through it, and the
+        // response side writes it before it drains a single tick. Both halves of that matter:
+        // the channel evicts its OLDEST entry when a live client falls behind, and the oldest
+        // entry is precisely the ack; and the scan loop starts pushing ticks at a client the
+        // moment it registers, which is before its Hello has even been read. Routed through the
+        // channel the ack could therefore arrive after a tick, or never arrive at all. A null
+        // result means the client never sent a Hello — there is nothing to acknowledge.
+        var handshake = new TaskCompletionSource<HelloAck?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
         try
         {
             var pump = Task.Run(async () =>
             {
-                await foreach (var msg in requestStream.ReadAllAsync(pumpCts.Token))
+                try
                 {
-                    switch (msg.MsgCase)
+                    await foreach (var msg in requestStream.ReadAllAsync(pumpCts.Token))
                     {
-                        case TrackRequest.MsgOneofCase.Hello:
-                            client.Name = msg.Hello.ClientName;
-                            break;
-                        case TrackRequest.MsgOneofCase.Rois:
-                            client.SetRois(msg.Rois);
-                            break;
+                        switch (msg.MsgCase)
+                        {
+                            case TrackRequest.MsgOneofCase.Hello:
+                                // A second Hello cannot renegotiate: the version is settled and the
+                                // ack has already gone out.
+                                if (handshake.Task.IsCompleted)
+                                    break;
+
+                                client.Name = msg.Hello.ClientName;
+                                var version = msg.Hello.ProtocolVersion == 0 ? 1u : msg.Hello.ProtocolVersion;
+                                if (version < ProtocolVersion.Min || version > ProtocolVersion.Current)
+                                {
+                                    throw new RpcException(new Status(StatusCode.FailedPrecondition,
+                                        $"protocol {version} unsupported; engine speaks {ProtocolVersion.Min}-{ProtocolVersion.Current}"),
+                                        new Metadata
+                                        {
+                                            { "sctracker-protocol-min", ProtocolVersion.Min.ToString() },
+                                            { "sctracker-protocol-max", ProtocolVersion.Current.ToString() },
+                                        });
+                                }
+
+                                var status = _status.Snapshot();
+                                handshake.TrySetResult(new HelloAck
+                                {
+                                    NegotiatedProtocolVersion = Math.Min(version, ProtocolVersion.Current),
+                                    EngineVersion = status.EngineVersion,
+                                    FrameWidth = status.FrameWidth,
+                                    FrameHeight = status.FrameHeight,
+                                    ReplayMode = status.ReplayMode,
+                                });
+                                break;
+                            case TrackRequest.MsgOneofCase.Rois:
+                                // The handshake window closes at the first non-Hello message. A
+                                // client that skips Hello would otherwise leave the response side
+                                // waiting for an ack that is never coming while the scan loop fills
+                                // its channel behind it — a deadlock in replay, where the loop
+                                // blocks on a full channel instead of dropping.
+                                handshake.TrySetResult(null);
+                                client.SetRois(msg.Rois);
+                                break;
+                        }
                     }
+                }
+                finally
+                {
+                    // Request stream ended or failed without a Hello: unblock the response side.
+                    handshake.TrySetResult(null);
                 }
             }, pumpCts.Token);
 
+            // Handshake before ticks, on the wire and not merely by intent.
+            if (!await TryWriteHelloAckAsync(handshake.Task, pump, responseStream))
+                return;
+
             // Completes when the registry completes the channel: replay finished, or the engine
-            // is shutting down. A client disconnecting instead surfaces as a cancellation.
-            await foreach (var response in client.Out.Reader.ReadAllAsync(ctx.CancellationToken))
-                await responseStream.WriteAsync(response);
+            // is shutting down. A client disconnecting instead surfaces as a cancellation. A
+            // failed request pump must end the call immediately too: otherwise an unsupported
+            // Hello would be stranded behind a response read that can never produce another item.
+            while (true)
+            {
+                if (pump.IsFaulted && !await ObservePumpAsync(pump))
+                    return;
+
+                var read = client.Out.Reader.WaitToReadAsync(ctx.CancellationToken).AsTask();
+                if (!pump.IsCompleted)
+                {
+                    var completed = await Task.WhenAny(read, pump);
+                    if (completed == pump && !await ObservePumpAsync(pump))
+                        return;
+                }
+
+                if (!await read)
+                    break;
+
+                while (client.Out.Reader.TryRead(out var response))
+                    await responseStream.WriteAsync(response);
+            }
 
             pumpCts.Cancel();
-            try
-            {
-                await pump;
-            }
-            catch (Exception e) when (IsCancellation(e))
-            {
-                // Expected: either we just cancelled the pump, or the client hung up first.
-            }
+            await ObservePumpAsync(pump);
         }
         catch (OperationCanceledException) when (ctx.CancellationToken.IsCancellationRequested)
         {
@@ -172,7 +237,53 @@ public sealed class CaptureGrpcService : CaptureEngineService.CaptureEngineServi
     }
 
     public override Task<StatusResponse> GetStatus(StatusRequest request, ServerCallContext ctx)
-        => Task.FromResult(_status.Snapshot());
+    {
+        var response = _status.Snapshot();
+        response.MinSupportedProtocol = ProtocolVersion.Min;
+        response.MaxSupportedProtocol = ProtocolVersion.Current;
+        return Task.FromResult(response);
+    }
+
+    /// <summary>
+    /// Waits for the handshake to settle and writes the ack, if there is one. Returns false when
+    /// the call is already over, in which case the caller must not go on to stream ticks.
+    /// </summary>
+    private static async Task<bool> TryWriteHelloAckAsync(
+        Task<HelloAck?> handshake, Task pump, IServerStreamWriter<TrackResponse> responseStream)
+    {
+        // Racing the pump matters as much as awaiting the handshake: an unsupported version faults
+        // the pump without ever settling the handshake, and waiting on it alone would hang the call
+        // instead of delivering the rejection the client is waiting for.
+        if (await Task.WhenAny(handshake, pump) == pump && !await ObservePumpAsync(pump))
+            return false;
+
+        var ack = await handshake;
+        if (ack is not null)
+            await responseStream.WriteAsync(new TrackResponse { HelloAck = ack });
+
+        return true;
+    }
+
+    /// <summary>
+    /// Observes a completed pump: a genuine failure (an unsupported protocol version, trailers and
+    /// all) is rethrown, while a hangup is reported as false. Returns true if the pump ended
+    /// cleanly. Never let a bare <c>await pump</c> stand in for this — a client disconnect reaches
+    /// the pump as an <see cref="RpcException"/> with a CANCELLED status about as often as it does
+    /// an <see cref="OperationCanceledException"/>, and rethrowing that turns an ordinary
+    /// disconnect into an exception escaping <see cref="Track"/>.
+    /// </summary>
+    private static async Task<bool> ObservePumpAsync(Task pump)
+    {
+        try
+        {
+            await pump;
+            return true;
+        }
+        catch (Exception e) when (IsCancellation(e))
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// Cancellation reaches us either as the token's own exception or, when gRPC has already

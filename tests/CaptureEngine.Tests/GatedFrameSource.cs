@@ -10,8 +10,11 @@ namespace CaptureEngine.Tests;
 /// Gating the source turns that ordering into a fact instead of a hope.
 /// </summary>
 /// <remarks>
-/// Reports <c>IsReplay</c> so the loop keeps replay's blocking backpressure — dropping a tick
-/// would break the very ordering this source exists to guarantee. It never returns null, so a run
+/// Defaults to reporting <c>IsReplay</c> so the loop keeps replay's blocking backpressure —
+/// dropping a tick would break the very ordering this source exists to guarantee. Pass
+/// <c>isReplay: false</c> to drive the live path instead, where the loop drops rather than blocks
+/// and pushes to every registered client whether or not it has subscribed; that is the only way to
+/// test behaviour a plugin will only ever meet in a live session. It never returns null, so a run
 /// ends by cancellation rather than by corpus exhaustion.
 /// </remarks>
 internal sealed class GatedFrameSource : IFrameSource
@@ -23,10 +26,13 @@ internal sealed class GatedFrameSource : IFrameSource
     // Enumerated and decoded through ReplayFrameSource: the gate and the cycling are the only
     // things this source is meant to do differently, and a private copy of the corpus handling
     // would let these tests validate a pixel path production does not use.
-    public GatedFrameSource(string directory)
-        => _frames = ReplayFrameSource.EnumerateCorpus(directory);
+    public GatedFrameSource(string directory, bool isReplay = true)
+    {
+        _frames = ReplayFrameSource.EnumerateCorpus(directory);
+        IsReplay = isReplay;
+    }
 
-    public bool IsReplay => true;
+    public bool IsReplay { get; }
 
     /// <summary>Lets the scan loop take <paramref name="count"/> more frames.</summary>
     public void Release(int count = 1) => _gate.Release(count);
