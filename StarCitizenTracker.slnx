@@ -8,11 +8,13 @@
   </Folder>
   <Folder Name="/src/Plugins/">
     <Project Path="src/Plugins/MissionPlugin/MissionPlugin.csproj" />
+    <Project Path="src/Plugins/RefineryPlugin/RefineryPlugin.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CaptureContracts.Tests/CaptureContracts.Tests.csproj" />
     <Project Path="tests/CaptureEngine.Tests/CaptureEngine.Tests.csproj" />
     <Project Path="tests/MissionPlugin.Tests/MissionPlugin.Tests.csproj" />
+    <Project Path="tests/RefineryPlugin.Tests/RefineryPlugin.Tests.csproj" />
     <Project Path="tests/TrackingService.Tests/TrackingService.Tests.csproj" />
   </Folder>
 </Solution>
