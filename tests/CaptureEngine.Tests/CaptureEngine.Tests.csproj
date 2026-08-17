@@ -32,21 +32,20 @@
     <!-- The SDK is driven against the in-proc engine here: this is the only project that can own
          both ends of the pipe, so the client's own tests live with the engine's. -->
     <ProjectReference Include="..\..\src\TrackerSdk\TrackerSdk.csproj" />
-    <!-- Same reason for the plugin: the replay-parity tests run engine + SDK + RefineryLogic in
-         one process and assert the monolith's fixture outcomes still come out the far end. -->
-    <ProjectReference Include="..\..\src\Plugins\RefineryPlugin\RefineryPlugin.csproj" />
-    <!-- ReplayHarness itself: unlike ReplayParityTests, its own tests spawn CaptureEngine.exe as a
-         real separate process rather than hosting the engine in-proc, so this reference is only for
-         EngineLocator/ReplayOptions/ReplayHarness/ReplayResult, never for the engine's own types. -->
+    <!-- ReplayHarness itself: its own tests spawn CaptureEngine.exe as a real separate process
+         rather than hosting the engine in-proc, so this reference is only for
+         EngineLocator/ReplayOptions/ReplayHarness/ReplayResult, never for the engine's own types.
+         No plugin reference here (TASK-13) — replay-parity tests moved to their plugins' own
+         suites so this project has no dependency the repo split cannot keep. -->
     <ProjectReference Include="..\..\src\TrackerSdk.Testing\TrackerSdk.Testing.csproj" />
   </ItemGroup>
 
-  <!-- Every replay corpus this suite drives: Fixtures/engine-smoke for the scan-loop tests, and
-       the shared fixtures in tests/fixtures/corpus/** for the parity tests. Copied next to the test
-       assembly so the relative paths resolve at run time. -->
+  <!-- The one corpus this suite still drives directly: Fixtures/engine-smoke, the corpus behind
+       essentially the whole engine-side suite (scan loop, gRPC host, SDK client, handshake, plugin
+       host, and the thin ReplayHarness smoke). Copied next to the test assembly so relative paths
+       resolve at run time. -->
   <ItemGroup>
     <None Include="Fixtures\**\*.png" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\fixtures\corpus\**\*.png" Link="Fixtures\Replay\%(RecursiveDir)%(FileName)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

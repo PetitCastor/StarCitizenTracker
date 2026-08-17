@@ -32,4 +32,11 @@
     <ProjectReference Include="..\..\src\TrackerSdk.Testing\TrackerSdk.Testing.csproj" />
   </ItemGroup>
 
+  <!-- The mission-accept corpus ReplayParityTests awaits (TASK-13): wired ahead of the capture so
+       landing the PNGs under tests\fixtures\corpus\mission-accept is enough to unskip the test,
+       with no further csproj change. An empty glob until then is harmless. -->
+  <ItemGroup>
+    <None Include="..\fixtures\corpus\mission-accept\**\*.png" Link="Fixtures\Replay\mission-accept\%(RecursiveDir)%(FileName)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

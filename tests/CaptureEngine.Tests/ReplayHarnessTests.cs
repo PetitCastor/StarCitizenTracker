@@ -7,23 +7,28 @@ using Xunit.Abstractions;
 namespace CaptureEngine.Tests;
 
 /// <summary>
-/// <see cref="ReplayHarness"/> against a real, separately spawned <c>CaptureEngine.exe</c> — the
-/// exact mechanism a plugin's own CI uses, as opposed to <see cref="ReplayParityTests"/> and
-/// <see cref="PluginHostIntegrationTests"/>, which host the engine in-proc.
+/// A spawned engine is a process-wide resource (a named pipe, a Windows OCR engine instance), so
+/// running two of these at once would have them competing for both while claiming to measure a
+/// deterministic replay. RefineryPlugin.Tests's own replay-parity suite (moved out in TASK-13)
+/// defines an identically-named collection in its own assembly for the same reason — xunit
+/// collections are per-assembly, so the two definitions don't collide, and equally neither
+/// serializes against the other (nothing here relies on cross-assembly ordering).
 /// </summary>
-/// <remarks>
-/// Shares <see cref="ReplayParityCollection"/> with the other engine-hosting suites: a spawned
-/// engine still binds the same kind of OS resources (a named pipe, a Windows OCR engine instance)
-/// those tests compete for, just from a second process instead of a second in-proc host.
-/// </remarks>
+[CollectionDefinition("ReplayParity", DisableParallelization = true)]
+public class ReplayParityCollection;
+
+/// <summary>
+/// <see cref="ReplayHarness"/> against a real, separately spawned <c>CaptureEngine.exe</c> — the
+/// exact mechanism a plugin's own CI uses, as opposed to <see cref="PluginHostIntegrationTests"/>,
+/// which hosts the engine in-proc. This is also the engine suite's one thin replay-harness smoke
+/// (<c>NullPlugin</c> + a minimal corpus): proves the engine side of the harness without any
+/// plugin logic, now that the full replay-parity suites live with their plugins.
+/// </summary>
 [Collection("ReplayParity")]
 [Trait("Category", "Integration")]
 public class ReplayHarnessTests(ITestOutputHelper output)
 {
     private static readonly TimeSpan TestTimeout = TimeSpan.FromMinutes(2);
-
-    private static string AbsoluteFixture(string relative) => Path.GetFullPath(
-        Path.Combine(AppContext.BaseDirectory, relative));
 
     [Fact]
     public async Task SmokeCorpus_DispatchesEveryTickAndEndsWithReplayCompleted()
@@ -35,7 +40,7 @@ public class ReplayHarnessTests(ITestOutputHelper output)
         var result = await ReplayHarness.RunAsync(new ReplayOptions
         {
             EnginePath = enginePath,
-            CorpusDir = AbsoluteFixture(EngineTestFixtures.ReplayDir),
+            CorpusDir = ReplayCorpus.Resolve(EngineTestFixtures.ReplayDir),
             Plugin = plugin,
             Timeout = TestTimeout,
         });

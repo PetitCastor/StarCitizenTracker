@@ -33,4 +33,13 @@
     <ProjectReference Include="..\..\src\TrackerSdk.Testing\TrackerSdk.Testing.csproj" />
   </ItemGroup>
 
+  <!-- The monolith's replay corpora this plugin's parity tests drive. Scoped to just these two
+       (not a `corpus\**` catch-all) so another plugin's corpus landing under tests\fixtures\corpus
+       doesn't get copied into every other plugin's test output. Copied next to the test assembly
+       so ReplayParityTests's relative paths resolve at run time. -->
+  <ItemGroup>
+    <None Include="..\fixtures\corpus\refinery-confirm\**\*.png" Link="Fixtures\Replay\refinery-confirm\%(RecursiveDir)%(FileName)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\fixtures\corpus\refinery-ice-rename\**\*.png" Link="Fixtures\Replay\refinery-ice-rename\%(RecursiveDir)%(FileName)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
