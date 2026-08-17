@@ -77,10 +77,10 @@ public interface ITrackerPlugin
 /// What the host does with a tick in which at least one subscribed region errored.
 /// </summary>
 /// <remarks>
-/// The policy exists because "the region failed" and "the region was empty" are the same empty
-/// string on <see cref="TickData"/> today, and which of the two a plugin is looking at decides
-/// whether its state machine should advance. TASK-08 gives ticks an explicit per-region status; the
-/// policy stays either way, because most plugins would rather not think about it at all.
+/// A tick states per-region status explicitly (<see cref="TickData.Status"/>,
+/// <see cref="TickData.TryGetText"/>), so a plugin CAN tell a failed region from an empty one. The
+/// policy exists because most plugins would rather not: whether a degraded tick should reach the
+/// parser at all is one decision, made once, instead of a check every reader has to remember.
 /// </remarks>
 public enum RoiErrorPolicy
 {

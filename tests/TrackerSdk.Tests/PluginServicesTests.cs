@@ -12,11 +12,12 @@ public class PluginServicesTests
 {
     private static PluginServices New(out List<TrackerRecord> records, out RecordingOutput output,
         bool verbose = false,
-        Func<RoiRect?, string, CancellationToken, Task<string?>>? dumpFrame = null)
+        Func<RoiRect?, string, CancellationToken, Task<string?>>? dumpFrame = null,
+        Func<RoiSubscription, CancellationToken, Task<OcrRegionResult?>>? readRoi = null)
     {
         records = [];
         output = new RecordingOutput();
-        return new PluginServices(records, output, verbose, dumpFrame);
+        return new PluginServices(records, output, verbose, dumpFrame, readRoi);
     }
 
     [Fact]
@@ -101,6 +102,40 @@ public class PluginServicesTests
         Assert.Equal(@"C:\engine\out\shot.png", path);
     }
 
+    [Fact]
+    public async Task ReadRoiAsync_PassesTheSubscriptionThrough()
+    {
+        RoiSubscription? seen = null;
+        var answer = new OcrRegionResult("SETUP", [], 3.0, 900, 265, 250, 55);
+
+        var services = New(out _, out _, readRoi: (roi, _) =>
+        {
+            seen = roi;
+            return Task.FromResult<OcrRegionResult?>(answer);
+        });
+
+        var subscription = new RoiSubscription("panel", new RoiRect(900, 265, 250, 55), 3.0, RoiKind.Text);
+        var result = await services.ReadRoiAsync(subscription, CancellationToken.None);
+
+        Assert.Equal(subscription, seen);
+        Assert.Same(answer, result);
+    }
+
+    /// <summary>
+    /// A plugin driven by a host that has no client to read through — a test harness, most of them —
+    /// gets a null rather than a crash, the same shape <see cref="PluginServices.DumpFrameAsync"/>
+    /// answers with when dumps are off.
+    /// </summary>
+    [Fact]
+    public async Task ReadRoiAsync_WithoutAReader_AnswersNull()
+    {
+        var services = New(out _, out _);
+
+        Assert.Null(await services.ReadRoiAsync(
+            new RoiSubscription("panel", new RoiRect(1, 2, 3, 4), 1.0, RoiKind.Text),
+            CancellationToken.None));
+    }
+
     /// <summary>
     /// One instance for the whole run, so a plugin may hold the reference it is handed — and reading
     /// <c>Engine</c> off it after a reconnect must show the engine it is now talking to, not the one
@@ -112,7 +147,8 @@ public class PluginServicesTests
         var services = New(out _, out _);
         Assert.Equal("", services.Engine.EngineVersion);
 
-        services.Engine = new EngineInfo("1.2.3", 1, 2560, 1440, false, "en-US", ["refinery"]);
+        services.Engine = new EngineInfo("1.2.3", 1, 2560, 1440, false, "en-US", ["refinery"],
+            TimeSpan.FromMilliseconds(250));
 
         Assert.Equal("1.2.3", services.Engine.EngineVersion);
         Assert.Equal(1u, services.Engine.NegotiatedProtocol);

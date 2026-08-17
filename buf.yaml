@@ -17,7 +17,8 @@ lint:
   #     rather than `capture.v1` in protos/capture/v1/. Renaming it rewrites csharp_namespace and
   #     every generated type reference on both sides of the boundary.
   #   RPC_REQUEST_STANDARD_NAME / RPC_RESPONSE_STANDARD_NAME — GetStatus takes StatusRequest and
-  #     returns StatusResponse; the SDK's public GetStatusAsync hands StatusResponse to plugins.
+  #     returns StatusResponse rather than GetStatusRequest/GetStatusResponse. Renaming them would
+  #     rewrite the generated types the engine and the SDK's mapping both name.
   #   ENUM_ZERO_VALUE_SUFFIX — RoiMode's zero is ROI_MODE_TEXT, a real default and not "unspecified".
   #     Note this one is off module-wide: `except` has no per-symbol scoping, and RoiResultKind lives
   #     in the same file, so nothing mechanically stops a NEW enum from landing with a non-_UNSPECIFIED

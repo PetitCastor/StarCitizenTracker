@@ -26,12 +26,13 @@ public enum RoiKind
 /// <see cref="WireLimits.NormalizeOcrScale"/>.
 /// </remarks>
 /// <param name="Id">Client-chosen, unique within this client's set; how results are looked up on a
-/// <see cref="TickData"/>.</param>
-public sealed record RoiSubscription(string Id, RoiRect Rect, double Scale, RoiKind Kind)
+/// <see cref="TickData"/>. A plain string still works at every call site — <see cref="RoiId"/>
+/// converts implicitly — so declaring a region reads exactly as it did.</param>
+public sealed record RoiSubscription(RoiId Id, RoiRect Rect, double Scale, RoiKind Kind)
 {
     internal RoiSpec ToProto() => new()
     {
-        Id = Id,
+        Id = Id.Value,
         Rect = Rect.ToProto(),
         Scale = Scale,
         Mode = Kind switch

@@ -58,6 +58,14 @@ internal sealed class ScanLoop : IDisposable
     }
 
     /// <summary>
+    /// The cadence this loop actually sleeps for — the configured interval after the
+    /// <see cref="MinScanInterval"/> clamp. Reported in GetStatus so a plugin counting ticks does
+    /// not have to assume the default; the clamp is why it is read from here rather than from the
+    /// config, which can hold a 0 the loop would never honour.
+    /// </summary>
+    public TimeSpan ScanInterval => _scanInterval;
+
+    /// <summary>
     /// Guards <see cref="RetainedFrame"/> against the loop replacing and disposing it. Held by
     /// the unary RPCs for the duration of their read, so a ReadRoi can never race a swap and OCR
     /// a disposed bitmap.

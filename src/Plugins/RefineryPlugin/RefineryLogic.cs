@@ -121,7 +121,7 @@ public sealed class RefineryLogic
     // fails for a structural reason — a toggle strip that scales past the wire's pixel budget on a
     // very large frame, say — fails on every tick, and a 2 Hz repeat would bury the console; silence
     // would be worse, since the symptom downstream is orders quietly filed with "?" fields.
-    private readonly HashSet<string> _reportedFailures = new(StringComparer.Ordinal);
+    private readonly HashSet<RoiId> _reportedFailures = [];
 
     public RefineryLogic(Action<TrackerRecord> emit, ConsoleSink sink, bool verbose,
         Func<RoiRect?, string, Task<string?>>? dumpFrame, OrderLedger ledger)
@@ -410,9 +410,9 @@ public sealed class RefineryLogic
     /// empty either way, and every caller here has to treat "could not read" as "do nothing", never
     /// as an observation.
     /// </summary>
-    private bool RoiFailed(TickData tick, string roiId)
+    private bool RoiFailed(TickData tick, RoiId roiId)
     {
-        var error = tick.Error(roiId);
+        var error = tick.ErrorMessage(roiId);
         if (error is null)
         {
             _reportedFailures.Remove(roiId);

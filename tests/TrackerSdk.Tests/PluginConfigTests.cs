@@ -35,7 +35,7 @@ public class PluginConfigTests : IDisposable
         var config = PluginConfig.Load<TestConfig>(path);
 
         Assert.True(File.Exists(path));
-        Assert.Equal(NamedPipeChannel.DefaultPipeName, config.PipeName);
+        Assert.Equal(EngineDefaults.PipeName, config.PipeName);
         Assert.False(config.SaveDebugFrames);
     }
 
@@ -64,7 +64,7 @@ public class PluginConfigTests : IDisposable
 
         var reloaded = PluginConfig.Load<TestConfig>(path);
 
-        Assert.Equal(NamedPipeChannel.DefaultPipeName, reloaded.PipeName);
+        Assert.Equal(EngineDefaults.PipeName, reloaded.PipeName);
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public class PluginConfigTests : IDisposable
 
         var config = PluginConfig.Load<TestConfig>(path);
 
-        Assert.Equal(NamedPipeChannel.DefaultPipeName, config.PipeName);
+        Assert.Equal(EngineDefaults.PipeName, config.PipeName);
         Assert.Equal("null", File.ReadAllText(path));
     }
 

@@ -241,6 +241,11 @@ public sealed class CaptureGrpcService : CaptureEngineService.CaptureEngineServi
         var response = _status.Snapshot();
         response.MinSupportedProtocol = ProtocolVersion.Min;
         response.MaxSupportedProtocol = ProtocolVersion.Current;
+
+        // From the loop, not from the config: the loop clamps a too-small configured interval, and
+        // reporting the unclamped number would have a plugin time out three ticks early forever.
+        response.ScanIntervalMs = (uint)_scanLoop.ScanInterval.TotalMilliseconds;
+
         return Task.FromResult(response);
     }
 

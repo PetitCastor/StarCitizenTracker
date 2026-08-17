@@ -11,7 +11,7 @@ namespace MissionPlugin;
 public sealed class MissionConfig
 {
     /// <summary>Named pipe the engine listens on; must match the engine's own setting.</summary>
-    public string PipeName { get; set; } = NamedPipeChannel.DefaultPipeName;
+    public string PipeName { get; set; } = EngineDefaults.PipeName;
 
     /// <summary>
     /// Ask the engine to dump the pane PNG on every capture and write the OCR text beside it.

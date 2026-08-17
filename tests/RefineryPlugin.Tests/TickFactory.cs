@@ -48,7 +48,7 @@ internal static class TickFactory
         RowSpec[]? yieldRows = null,
         (byte B, byte G, byte R)? toggle = null,
         bool manual = false,
-        params string[] erroredRois)
+        params RoiId[] erroredRois)
     {
         var proto = new TickResult
         {
@@ -77,7 +77,7 @@ internal static class TickFactory
         // see, which is the whole reason these are built through the wire type.
         for (var i = 0; i < proto.Results.Count; i++)
         {
-            if (!erroredRois.Contains(proto.Results[i].RoiId, StringComparer.Ordinal))
+            if (!erroredRois.Contains((RoiId)proto.Results[i].RoiId))
                 continue;
 
             proto.Results[i] = new RoiResult
@@ -93,7 +93,7 @@ internal static class TickFactory
 
     private static RoiResult TextResult(RoiSubscription roi, string text) => new()
     {
-        RoiId = roi.Id,
+        RoiId = roi.Id.Value,
         Kind = RoiResultKind.Text,
         FrameRect = roi.Rect.ToProto(),
         EffectiveScale = roi.Scale,
@@ -110,7 +110,7 @@ internal static class TickFactory
     {
         var result = new RoiResult
         {
-            RoiId = roi.Id,
+            RoiId = roi.Id.Value,
             Kind = RoiResultKind.Detailed,
             FrameRect = roi.Rect.ToProto(),
         };
@@ -168,7 +168,7 @@ internal static class TickFactory
 
         return new RoiResult
         {
-            RoiId = roi.Id,
+            RoiId = roi.Id.Value,
             Kind = RoiResultKind.Pixels,
             FrameRect = roi.Rect.ToProto(),
             PixelsBgra = ByteString.CopyFrom(bgra),

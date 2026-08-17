@@ -31,6 +31,24 @@ public interface IPluginServices
     /// </remarks>
     Task<string?> DumpFrameAsync(RoiRect? roi, string prefix, CancellationToken ct);
 
+    /// <summary>
+    /// Reads one region against the engine's most recent frame, outside the tick — the calibration
+    /// counterpart to <see cref="DumpFrameAsync"/>. Null when the engine has not scanned a frame
+    /// yet, and also when the services were built without a client to read through — which a
+    /// plugin's own test harness can do, and which otherwise reads as an engine that never captures.
+    /// </summary>
+    /// <remarks>
+    /// Nothing a plugin acts on should come from here: this is a second round-trip and may land on a
+    /// different frame than the tick in hand, which is precisely the cross-frame mixing
+    /// <see cref="TickData"/> exists to prevent. Use it to check a ROI constant, to probe a region
+    /// that is not subscribed, or to answer "what does the engine see right now" in a diagnostic.
+    /// </remarks>
+    /// <exception cref="CaptureContracts.RoiResultException">
+    /// The engine flagged the region as failed, or it is a <see cref="RoiKind.Pixels"/> subscription,
+    /// which has no OCR to return.
+    /// </exception>
+    Task<OcrRegionResult?> ReadRoiAsync(RoiSubscription roi, CancellationToken ct);
+
     /// <summary>What is on the other end, as of the current connect.</summary>
     EngineInfo Engine { get; }
 
