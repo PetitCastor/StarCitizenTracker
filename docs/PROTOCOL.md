@@ -9,6 +9,10 @@ Governance: `buf.yaml` at the repo root plus the `proto-guard` job in `.github/w
 Every PR is linted and compared against `master` with `buf breaking` at `WIRE_JSON` level, so a
 field cannot be deleted, renumbered or retyped without CI going red.
 
+For the processes this contract sits between, see [`docs/ARCHITECTURE.md`](ARCHITECTURE.md); for
+what each RPC actually does and every wire budget/constant, see
+[`docs/ENGINE-SERVICES.md`](ENGINE-SERVICES.md).
+
 ## Transport
 
 | | |

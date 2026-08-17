@@ -19,10 +19,13 @@ A plugin implements `ITrackerPlugin` — a name, a set of regions, and what to d
 hands it to `TrackerPluginHost.RunAsync`, which owns connecting, subscribing, reconnecting,
 cancellation, and the end-of-run summary.
 
-The engine/plugin wire contract — transport, handshake, version policy, and the guarantees a plugin
-may rely on — is documented in [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Changes to
-`protos/capture.proto` are lint- and breaking-change-checked against `master` by the `proto-guard`
-CI job (`buf.yaml`).
+The process layout and frozen architectural decisions are documented in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); the full catalog of what the engine offers —
+`Track`/`ReadRoi`/`DumpFrame`/`GetStatus`, replay mode, hotkeys, and every wire budget — is in
+[`docs/ENGINE-SERVICES.md`](docs/ENGINE-SERVICES.md). The engine/plugin wire contract — transport,
+handshake, version policy, and the guarantees a plugin may rely on — is documented in
+[`docs/PROTOCOL.md`](docs/PROTOCOL.md). Changes to `protos/capture.proto` are lint- and
+breaking-change-checked against `master` by the `proto-guard` CI job (`buf.yaml`).
 
 ## Build
 
