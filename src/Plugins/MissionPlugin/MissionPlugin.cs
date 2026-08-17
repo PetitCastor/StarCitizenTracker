@@ -2,6 +2,11 @@ using System.Text.RegularExpressions;
 using CaptureContracts;
 using TrackerSdk;
 
+// The class below shares its name with this namespace, which shadows the static Rois holder for
+// any unqualified reference inside it (member lookup wins over enclosing-namespace lookup) — this
+// alias is the least noisy way to reach Rois from there without spelling out `global::` each time.
+using MissionRois = global::MissionPlugin.Rois;
+
 namespace MissionPlugin;
 
 /// <summary>
@@ -40,7 +45,7 @@ public sealed partial class MissionPlugin : ITrackerPlugin
 
     public string Name => "missions";
 
-    public IReadOnlyList<RoiSubscription> Rois => global::MissionPlugin.Rois.All;
+    public IReadOnlyList<RoiSubscription> Rois => MissionRois.All;
 
     // Explicit even though it matches ITrackerPlugin's own default: replaces the monolith's
     // silent-ignore of a failed "tab" region (an OCR error used to read as "counter gone",
@@ -63,7 +68,7 @@ public sealed partial class MissionPlugin : ITrackerPlugin
         // A failed or unsubscribed "tab" is not the same as a tab that read fine but shows no
         // counter (a different tab selected): the former says nothing about whether missions
         // are still accepted, so state is left untouched rather than reset.
-        if (!tick.TryGetText(global::MissionPlugin.Rois.Tab.Id, out var tabText))
+        if (!tick.TryGetText(MissionRois.Tab.Id, out var tabText))
             return;
 
         services.LogVerbose($"[{Name}] tab: {tabText.ReplaceLineEndings(" ")}");
@@ -115,7 +120,7 @@ public sealed partial class MissionPlugin : ITrackerPlugin
     private async Task CapturePaneAsync(TickData tick, IPluginServices services, TriggerKind trigger,
         CancellationToken ct)
     {
-        tick.TryGetText(global::MissionPlugin.Rois.Pane.Id, out var paneText);
+        tick.TryGetText(MissionRois.Pane.Id, out var paneText);
 
         // The tick's own timestamp, not DateTime.Now: the host buffers a few ticks per client,
         // so "when this was processed" can be a second or two after the frame it describes.
@@ -129,7 +134,7 @@ public sealed partial class MissionPlugin : ITrackerPlugin
         {
             // The engine writes the PNG and hands back where it put it; null means it has not
             // scanned a frame yet, in which case there is nothing to sit the text beside.
-            var pngPath = await services.DumpFrameAsync(global::MissionPlugin.Rois.Pane.Rect, "mission_pane", ct);
+            var pngPath = await services.DumpFrameAsync(MissionRois.Pane.Rect, "mission_pane", ct);
             if (pngPath is not null)
                 await File.WriteAllTextAsync(Path.ChangeExtension(pngPath, ".txt"), paneText, ct);
         }

@@ -1,4 +1,3 @@
-using MissionPlugin;
 using Xunit;
 
 namespace MissionPlugin.Tests;
@@ -8,7 +7,7 @@ namespace MissionPlugin.Tests;
 /// unchanged on purpose: they are the record of what OCR actually produces for this tab, and a
 /// port that quietly relaxed one of them would be a behaviour change dressed up as a move.
 /// </summary>
-public class MissionLogicParseTests
+public class MissionPluginParseTests
 {
     [Theory]
     [InlineData("Accepted (3/10)", 3, 10)]

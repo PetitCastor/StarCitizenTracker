@@ -1,5 +1,4 @@
 using CaptureContracts;
-using MissionPlugin;
 using TrackerSdk;
 using TrackerSdk.Testing;
 using Xunit;
@@ -11,7 +10,7 @@ namespace MissionPlugin.Tests;
 /// used to be "a frame plus two OCR calls" is now one object, and the decision to emit still has
 /// to come from the counter's movement rather than from its value.
 /// </summary>
-public class MissionLogicTickTests
+public class MissionPluginTickTests
 {
     private static TickData Tick(string tabText, string paneText = "", bool manual = false,
         DateTimeOffset? at = null)
@@ -27,10 +26,17 @@ public class MissionLogicTickTests
     private static TickContext Ctx(TickData tick, IPluginServices services) =>
         TickContext.ForTesting(tick, services);
 
+    /// <summary>Debug dumps switched off, the ordinary case: the default fake fabricates a real
+    /// temp path and writes a real file, which a test not about dumping has no reason to do.</summary>
+    private static FakePluginServices Services() => new()
+    {
+        DumpFrameHandler = (_, _, _) => Task.FromResult<string?>(null),
+    };
+
     [Fact]
     public async Task CounterIncrement_EmitsOneAutoRecordCarryingThePaneText()
     {
-        var services = new FakePluginServices();
+        var services = Services();
         var plugin = new MissionPlugin();
 
         // First sighting: the counter is merely visible, which is the contract manager opening.
@@ -48,7 +54,7 @@ public class MissionLogicTickTests
     [Fact]
     public async Task CounterDecrement_EmitsNothing()
     {
-        var services = new FakePluginServices();
+        var services = Services();
         var plugin = new MissionPlugin();
 
         await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (3/5)", "pane"), services), default);
@@ -61,7 +67,7 @@ public class MissionLogicTickTests
     [Fact]
     public async Task ManualTick_EmitsAManualRecordEvenWithNoCounterOnScreen()
     {
-        var services = new FakePluginServices();
+        var services = Services();
         var plugin = new MissionPlugin();
 
         await plugin.OnTickAsync(Ctx(Tick("no counter here", "MISSION: Escort", manual: true), services), default);
@@ -79,7 +85,7 @@ public class MissionLogicTickTests
     [Fact]
     public async Task ManualOnTheSameTickAsAnIncrement_EmitsManualThenAuto()
     {
-        var services = new FakePluginServices();
+        var services = Services();
         var plugin = new MissionPlugin();
 
         await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (2/5)", "pane"), services), default);
@@ -135,7 +141,7 @@ public class MissionLogicTickTests
     [Fact]
     public async Task Record_IsStampedWithTheTicksTimeNotTheProcessingTime()
     {
-        var services = new FakePluginServices();
+        var services = Services();
         var plugin = new MissionPlugin();
 
         var tick = Tick("no counter", "MISSION: Escort", manual: true,
@@ -200,7 +206,7 @@ public class MissionLogicTickTests
     [Fact]
     public async Task ErroredTabTick_EmitsNothingAndDoesNotResetCounterState()
     {
-        var services = new FakePluginServices();
+        var services = Services();
         var plugin = new MissionPlugin();
 
         await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (2/5)", "pane"), services), default);
@@ -212,11 +218,22 @@ public class MissionLogicTickTests
         await plugin.OnTickAsync(Ctx(erroredTick, services), default);
         Assert.Empty(services.Emitted);
 
-        // State was preserved through the errored tick: 2 -> 3 still reads as an increment.
+        // The old bug read a failed "tab" the same as a tab that read fine but showed no
+        // counter, and logged/reset accordingly; the fix leaves state untouched and logs
+        // nothing for a region it could not read at all.
+        Assert.DoesNotContain(services.VerboseLogs, l => l.Contains("counter no longer visible"));
+
+        // State was preserved through the errored tick: 2 -> 3 still reads as an increment. A
+        // sequence-only assertion cannot tell the fix from the bug here — both emit exactly one
+        // Auto record on this input, since the old code's spurious reset only ever cleared
+        // _lastCounter, never _lastAcceptedCount. The transition log is what actually pins it:
+        // the bug names the pre-error counter "none" (having reset it on the errored tick),
+        // while the fix names it "2/5".
         await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (3/5)", "MISSION: Deliver crates"), services), default);
 
         var record = Assert.Single(services.Emitted);
         Assert.Equal(TriggerKind.Auto, record.Trigger);
         Assert.Equal("MISSION: Deliver crates", record.RawText);
+        Assert.Contains(services.Logs, l => l.Contains("counter 2/5 -> 3/5"));
     }
 }
