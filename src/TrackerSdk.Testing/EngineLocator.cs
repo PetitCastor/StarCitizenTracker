@@ -15,7 +15,9 @@ public static class EngineLocator
     /// </summary>
     public static string Resolve() =>
         Environment.GetEnvironmentVariable(EnvVar) is { Length: > 0 } fromEnv
-            ? fromEnv
+            ? File.Exists(fromEnv)
+                ? fromEnv
+                : throw new InvalidOperationException($"{EnvVar} is set to '{fromEnv}', but no file exists there.")
             : ProbeBuildOutput()
             ?? throw new InvalidOperationException(
                 $"Could not find {ExeName}. Set {EnvVar} to its path, or build the CaptureEngine project first.");
@@ -33,9 +35,9 @@ public static class EngineLocator
 
     private static string? FindNewestExe(string binRoot) =>
         Directory.EnumerateFiles(binRoot, ExeName, SearchOption.AllDirectories)
-            .OrderByDescending(p => p.Contains(
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .ThenByDescending(p => p.Contains(
                 Path.DirectorySeparatorChar + "Release" + Path.DirectorySeparatorChar,
                 StringComparison.OrdinalIgnoreCase))
-            .ThenByDescending(File.GetLastWriteTimeUtc)
             .FirstOrDefault();
 }

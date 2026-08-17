@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 
 namespace TrackerSdk.Testing;
@@ -35,8 +36,14 @@ public static class ReplayHarness
         engine.OutputDataReceived += (_, e) => outputTail.Add(e.Data);
         engine.ErrorDataReceived += (_, e) => outputTail.Add(e.Data);
 
-        if (!engine.Start())
-            throw new InvalidOperationException($"failed to start engine process at '{o.EnginePath}'");
+        try
+        {
+            engine.Start();
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            throw new InvalidOperationException($"failed to start engine process at '{o.EnginePath}'", ex);
+        }
         engine.BeginOutputReadLine();
         engine.BeginErrorReadLine();
 
@@ -45,15 +52,22 @@ public static class ReplayHarness
             var records = new List<TrackerRecord>();
             var recorder = new EndReasonRecorder(o.Plugin);
 
+            // Linked rather than passed to WaitAsync directly: the caller's ct and an internal
+            // timeout both need to make the host shut down gracefully (StreamEndReason.Cancelled),
+            // never race against WaitAsync's own OperationCanceledException/TimeoutException.
+            using var shutdownCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
             var options = new PluginHostOptions
             {
                 // No config.json next to a test assembly, and no Ctrl+C handler stealing the test
                 // runner's own interrupt — the same two overrides the host's own integration tests use.
                 ConfigFileName = null,
                 HandleCancelKeyPress = false,
-                ShutdownToken = ct,
+                ShutdownToken = shutdownCts.Token,
                 RecordSink = records.Add,
             };
+
+            var hostTask = TrackerPluginHost.RunAsync(recorder, ["--pipe", pipe], options);
 
             int exit;
             try
@@ -62,11 +76,17 @@ public static class ReplayHarness
                 // ShutdownToken makes the host return gracefully (StreamEndReason.Cancelled, exit 0),
                 // which is indistinguishable from a real Ctrl+C. A hang has to surface as a thrown
                 // TimeoutException instead, so the caller (and CI) can tell the two apart.
-                exit = await TrackerPluginHost.RunAsync(recorder, ["--pipe", pipe], options)
-                    .WaitAsync(o.Timeout, ct);
+                exit = await hostTask.WaitAsync(o.Timeout, CancellationToken.None);
             }
             catch (TimeoutException)
             {
+                // Don't leave hostTask running detached: ask the host to shut down and give it a
+                // bounded grace period, mirroring the wait for the engine process below. Best-effort
+                // — the process kill in the finally block is what actually guarantees cleanup.
+                shutdownCts.Cancel();
+                try { await hostTask.WaitAsync(EngineExitGrace, CancellationToken.None); }
+                catch { /* the TimeoutException below is what the caller sees */ }
+
                 throw new TimeoutException(
                     $"ReplayHarness: no result within {o.Timeout} " +
                     $"(engine '{o.EnginePath}', corpus '{o.CorpusDir}')." + Environment.NewLine +
@@ -81,7 +101,10 @@ public static class ReplayHarness
             catch (OperationCanceledException) { /* the finally below kills the tree */ }
 
             var reason = recorder.EndReason ?? throw new InvalidOperationException(
-                "ReplayHarness: the plugin host returned without ever raising SessionEvent.Ended.");
+                $"ReplayHarness: the plugin host returned (exit {exit}) without ever raising " +
+                "SessionEvent.Ended — likely a usage error logged to the host's own Console.Error." +
+                Environment.NewLine + "--- last engine output ---" + Environment.NewLine +
+                outputTail.Text);
 
             return new ReplayResult(records, exit, reason);
         }
@@ -89,8 +112,15 @@ public static class ReplayHarness
         {
             // No orphaned CaptureEngine.exe on any exit path — a failed/timed-out run must not leave
             // a process holding the OCR engine and the pipe name for the next test to trip over.
-            if (!engine.HasExited)
-                engine.Kill(entireProcessTree: true);
+            // HasExited-then-Kill is inherently racy (the process can exit in between), so this must
+            // not let a Kill failure mask an exception already propagating out of the try block.
+            try
+            {
+                if (!engine.HasExited)
+                    engine.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException) { /* already exited */ }
+            catch (Win32Exception) { /* already exited/exiting */ }
         }
     }
 
