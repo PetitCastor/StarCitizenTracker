@@ -10,23 +10,23 @@ that owns the screen.
 ```mermaid
 flowchart LR
     subgraph EngineProc["CaptureEngine (Windows-TFM exe, per-user, one instance)"]
-        WGC["WGC monitor capture\nMonitorCapture / CaptureInterop"]
-        OCR["Windows OCR\nOcrPipeline"]
-        Hotkey["Low-level keyboard hook\nHotkeyListener"]
-        Loop["ScanLoop\n(one frame in, one TickResult\nper client out)"]
+        WGC["WGC monitor capture<br/>MonitorCapture / CaptureInterop"]
+        OCR["Windows OCR<br/>OcrPipeline"]
+        Hotkey["Low-level keyboard hook<br/>HotkeyListener"]
+        Loop["ScanLoop<br/>(one frame in, one TickResult<br/>per client out)"]
         Reg["SubscriptionRegistry"]
-        Svc["CaptureGrpcService\n(Track / ReadRoi / DumpFrame / GetStatus)"]
+        Svc["CaptureGrpcService<br/>(Track / ReadRoi / DumpFrame / GetStatus)"]
 
         WGC --> Loop
         OCR --> Loop
-        Hotkey -. "manual flag\n(Interlocked.Exchange)" .-> Loop
+        Hotkey -. "manual flag<br/>(Interlocked.Exchange)" .-> Loop
         Loop <--> Reg
         Loop --> Svc
     end
 
-    Svc <==>|"named pipe gRPC\n(HTTP/2, plaintext)"| SdkA["TrackerSdk\nin MissionPlugin.exe"]
-    Svc <==>|"named pipe gRPC"| SdkB["TrackerSdk\nin RefineryPlugin.exe"]
-    Svc <==>|"named pipe gRPC"| SdkN["TrackerSdk\nin plugin N"]
+    Svc <==>|"named pipe gRPC<br/>(HTTP/2, plaintext)"| SdkA["TrackerSdk<br/>in MissionPlugin.exe"]
+    Svc <==>|"named pipe gRPC"| SdkB["TrackerSdk<br/>in RefineryPlugin.exe"]
+    Svc <==>|"named pipe gRPC"| SdkN["TrackerSdk<br/>in plugin N"]
 ```
 
 One named pipe, one gRPC channel per plugin process, one `Track` bidi stream per channel. Every
@@ -38,8 +38,9 @@ processes and projects that contract sits between.
 
 ## Frozen constraints
 
-These were decided once (`tasks/archive/ENGINE-SPLIT/00-OVERVIEW.md`) and are not up for revisiting inside
-a task:
+These were decided once, during the original engine/plugin split, and are not up for revisiting
+inside a task (the task docs that recorded the decision live under `tasks/`, which is gitignored
+and not part of the repo history — the constraints below are restated in full rather than linked):
 
 - **Windows TFM stops at the engine.** Only `CaptureEngine` targets
   `net10.0-windows10.0.22621.0` (`src/CaptureEngine/CaptureEngine.csproj`) — it is the only project
@@ -52,11 +53,12 @@ a task:
 - **OCR-results-only boundary.** Only OCR text/geometry and small pixel buffers cross the wire.
   Raw full frames never leave the engine process — `DumpFrame` writes a PNG to disk from inside the
   engine and returns a path, it does not send bytes (`CaptureGrpcService.cs:199-237`).
-- **Engine cannot be a session-0 Windows Service.** Window Graphics Capture requires an interactive
-  desktop session, so the engine is a normal per-user console exe, never a background service.
+- **Engine cannot be a session-0 Windows Service.** Windows Graphics Capture requires an
+  interactive desktop session, so the engine is a normal per-user console exe, never a background
+  service.
 - **Reference ROI space is 2560x1440**, and the engine does all scaling to actual frame pixels
-  server-side (`RoiScaler.cs:12-13`, `ScanLoop.cs:207`-area `ReadOneAsync`). Plugins declare ROIs
-  once and never rescale a rect the engine reports back.
+  server-side (`RoiScaler.cs:12-13`, `ScanLoop.ReadOneAsync` at `ScanLoop.cs:214`). Plugins declare
+  ROIs once and never rescale a rect the engine reports back.
 - **net10.0 (or the Windows-flavored net10.0) everywhere** — no other TFM appears in the solution.
 
 ## Component table

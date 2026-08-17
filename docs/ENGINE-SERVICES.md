@@ -25,10 +25,15 @@ result or a per-ROI `error` (`ScanLoop.ReadOneAsync` never throws out of the tic
 `src/CaptureEngine/ScanLoop.cs:198-267`). A failing ROI never removes another ROI's result, for
 that client or any other client sharing the engine.
 
+The only thing a plugin *sends* on this stream past the initial `Hello` is a `RoiSetUpdate` — a
+**full replacement** of its subscribed set, idempotent, with an empty set a legitimate
+heartbeat-only state rather than "not ready" (`protos/capture.proto:77-80`; full rules in the Tick
+atomicity section of `docs/PROTOCOL.md`).
+
 ### ROI kinds
 
-Declared per-region on subscribe (`RoiSpec.mode`, `protos/capture.proto:50-54`; SDK-side
-`RoiKind`, `src/TrackerSdk/RoiKind.cs`):
+Declared per-region on subscribe (`RoiSpec.mode`, `protos/capture.proto:66`, values from the
+`RoiMode` enum at `protos/capture.proto:50-54`; SDK-side `RoiKind`, `src/TrackerSdk/RoiKind.cs`):
 
 | Kind | What it returns | When to use |
 | --- | --- | --- |
@@ -86,8 +91,10 @@ either fired on this frame or it did not, and no two plugins may disagree about 
 loop reads the flag exactly once per frame via `Interlocked.Exchange(ref _manualFlag, 0)`
 (`src/CaptureEngine/ScanLoop.cs:85,120`), so a press on the hook thread is picked up atomically by
 the next tick and cleared for the one after. `TickData.Manual` on the SDK side is a straight copy
-of that bit (`src/TrackerSdk/TickData.cs:67`); a plugin overrides `OnManualTickAsync` when the
-hotkey means something different from its normal capture (`ITrackerPlugin.cs:49-55`).
+of that bit (`src/TrackerSdk/TickData.cs:67`); the plugin host dispatches a manual tick to
+`ITrackerPlugin.OnManualTickAsync` instead of `OnTickAsync` (`TickDispatcher.DispatchAsync`,
+`src/TrackerSdk/Plugin/TickDispatcher.cs:78-79`), which a plugin overrides when the hotkey means
+something different from its normal capture (`ITrackerPlugin.cs:49-55`).
 
 ### HelloAck handshake
 
@@ -155,9 +162,9 @@ Unary, stateless snapshot of what the engine is doing right now
 | `frame_seq` | The last scanned frame's sequence number. |
 | `replay_mode` | `true` when frames come from a PNG corpus rather than live WGC capture. |
 | `ocr_language` | BCP-47 tag of the recognizer actually loaded (`OcrPipeline.LanguageTag`). |
-| `connected_clients` | Names of every currently-subscribed plugin (this caller included), ordinal-sorted. |
+| `connected_clients` | Names of every connection currently open on the engine, ordinal-sorted — not only ones that have subscribed. A client is listed the moment its `Track` call registers, as `"?"` until its `Hello` names it (`SubscriptionRegistry.Register`, `src/CaptureEngine/SubscriptionRegistry.cs:26-36`); a bare `GetStatus`/`WaitForEngineAsync` call opens no `Track` stream and does not appear. |
 | `min_supported_protocol` / `max_supported_protocol` | The `[Min, Current]` protocol-version range this engine build accepts — `CaptureContracts.ProtocolVersion`; see the version-policy section of `docs/PROTOCOL.md`. |
-| `scan_interval_ms` | **Protocol range**: the cadence the scan loop *actually* runs at, after its own minimum clamp — not the raw config value. `0` means an engine older than this field; a client falls back to `EngineDefaults.DefaultScanInterval` (500 ms, `src/TrackerSdk/EngineDefaults.cs:39`). |
+| `scan_interval_ms` | The cadence the scan loop *actually* runs at, after its own minimum clamp — not the raw config value. `0` means an engine older than this field; a client falls back to `EngineDefaults.DefaultScanInterval` (500 ms, `src/TrackerSdk/EngineDefaults.cs:39`). |
 
 `GetStatus` is also the mechanism `CaptureClient.WaitForEngineAsync` polls to detect a running
 engine before opening a `Track` stream — a pipe nobody is listening on makes the dial *block*
@@ -174,8 +181,11 @@ and the determinism guarantees specifically.
 
 **Flags**:
 
-- `--replay <dir>`: directory must exist and contain `*.png` files; mutually exclusive with
-  `--save-frames` (`Program.cs:41-52`) — replay has no live screen to save a frame *from*.
+- `--replay <dir>`: the directory must exist (checked at startup, `Program.cs:41-46`) but is not
+  required to contain any `*.png` files — an empty corpus starts normally and produces a zero-tick
+  run, since `ReplayFrameSource.EnumerateCorpus` finds nothing and the loop ends immediately.
+  Mutually exclusive with `--save-frames` (`Program.cs:48-52`) — replay has no live screen to save a
+  frame *from*.
 - In replay, the hotkey listener and the live status-bar metrics timer are never started
   (`Program.cs:66-68,136-156`) — there is no live screen to trigger against, and a 1 Hz status bar
   over a batch run is pure flicker.
@@ -220,14 +230,15 @@ focus; a low-level hook sees keys at the system input chain before the game does
 configured as a string (`EngineConfig.Hotkey`, default `"Ctrl+Shift+F12"`) and parsed by
 `HotkeyListener.ParseHotkey` into modifier flags + a virtual key. The hook callback must return
 fast, so it only sets a flag; the scan loop picks the flag up on its next frame and surfaces it to
-every connected plugin as `TickResult.manual`. Every plugin sees the hotkey the same way — as the
-`Manual` bit on a `TickContext`, i.e. `Manual` — there is no separate hotkey RPC or event.
+every connected plugin as `TickResult.manual`. Every plugin sees the hotkey the same way — as
+`ctx.Tick.Manual` on the `TickContext` it receives, routed to `OnManualTickAsync` (see the `manual`
+flag semantics above) — there is no separate hotkey RPC or event.
 
 ## Budgets table
 
 | Budget | Value | Source |
 | --- | --- | --- |
-| `ROI_MODE_PIXELS` payload cap | 256 KiB (a 256x256 BGRA patch) | `WireLimits.MaxPixelBytes`, `src/CaptureContracts/WireLimits.cs:20` (re-exported as `EngineDefaults.MaxPixelBytes`, `src/TrackerSdk/EngineDefaults.cs:46`) |
+| `ROI_MODE_PIXELS` payload cap | 256 KiB (a 256x256 BGRA patch) | `WireLimits.MaxPixelBytes`, `src/CaptureContracts/WireLimits.cs:20` (re-exported as `EngineDefaults.MaxPixelBytes`, `src/TrackerSdk/EngineDefaults.cs:46`). Checked against **frame-space** bounds, i.e. after `RoiScaler.ToFrame` (`ScanLoop.cs:242`) — a probe sized to fit at 2560x1440 can still exceed the cap on a higher-resolution capture. |
 | OCR upscale clamp | Crop's longest side capped at `OcrEngine.MaxImageDimension` (Windows OCR API limit) | `OcrPipeline.EffectiveScale`, `src/CaptureEngine/Core/OcrPipeline.cs:120-126` |
 | Minimum scan interval | 100 ms | `ScanLoop.MinScanInterval`, `src/CaptureEngine/ScanLoop.cs:22` |
 | Default scan interval | 500 ms (a stock, unconfigured engine) | `EngineConfig.ScanIntervalMs` default, `src/CaptureEngine/Core/EngineConfig.cs:32`; re-exported as `EngineDefaults.DefaultScanInterval`, `src/TrackerSdk/EngineDefaults.cs:39` |

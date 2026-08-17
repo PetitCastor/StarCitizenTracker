@@ -117,7 +117,7 @@ Two spaces travel the wire, and every rect field in `capture.proto` documents wh
 | FRAME | Actual capture pixels of the monitor | `RoiResult.frame_rect`, `TickResult.frame_width/height` |
 | Crop | The upscaled OCR crop, origin at the ROI | `OcrWord.crop_rect` |
 
-**The engine does all scaling** (`ScanLoop.cs:207`): a client declares reference-space ROIs and gets
+**The engine does all scaling** (`ScanLoop.cs:214`): a client declares reference-space ROIs and gets
 back the frame-space rect that was actually read, after scaling and clamping. A plugin must never
 re-scale a rect the engine reported — double-scaling produces coordinates that are wrong but
 plausible. A reference ROI that cannot touch the frame at all is rejected per-ROI rather than
