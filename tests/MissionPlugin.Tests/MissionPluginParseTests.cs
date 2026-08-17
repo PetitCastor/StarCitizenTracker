@@ -1,4 +1,3 @@
-using MissionPlugin;
 using Xunit;
 
 namespace MissionPlugin.Tests;
@@ -8,7 +7,7 @@ namespace MissionPlugin.Tests;
 /// unchanged on purpose: they are the record of what OCR actually produces for this tab, and a
 /// port that quietly relaxed one of them would be a behaviour change dressed up as a move.
 /// </summary>
-public class MissionLogicParseTests
+public class MissionPluginParseTests
 {
     [Theory]
     [InlineData("Accepted (3/10)", 3, 10)]
@@ -16,7 +15,7 @@ public class MissionLogicParseTests
     [InlineData("accepted(0/5)", 0, 5)]
     public void ParseAcceptedCounter_MatchesVariousFormats(string tabText, int expectedAccepted, int expectedTotal)
     {
-        var result = MissionLogic.ParseAcceptedCounter(tabText);
+        var result = MissionPlugin.ParseAcceptedCounter(tabText);
 
         Assert.NotNull(result);
         Assert.Equal(expectedAccepted, result.Value.Accepted);
@@ -25,7 +24,7 @@ public class MissionLogicParseTests
 
     [Fact]
     public void ParseAcceptedCounter_NoMatch_ReturnsNull()
-        => Assert.Null(MissionLogic.ParseAcceptedCounter("nothing relevant here"));
+        => Assert.Null(MissionPlugin.ParseAcceptedCounter("nothing relevant here"));
 
     [Theory]
     [InlineData(-1, 0, false)]  // first sighting, never counts as new
@@ -35,5 +34,5 @@ public class MissionLogicParseTests
     [InlineData(5, 5, false)]   // unchanged
     [InlineData(3, 5, false)]   // jump, not a simple increment
     public void IsNewMissionAccepted_OnlyTrueOnSimpleIncrement(int previous, int current, bool expected)
-        => Assert.Equal(expected, MissionLogic.IsNewMissionAccepted(previous, current));
+        => Assert.Equal(expected, MissionPlugin.IsNewMissionAccepted(previous, current));
 }
