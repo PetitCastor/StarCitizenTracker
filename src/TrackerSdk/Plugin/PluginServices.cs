@@ -33,15 +33,24 @@ internal sealed class PluginServices : IPluginServices
     /// </summary>
     private readonly Func<RoiSubscription, CancellationToken, Task<OcrRegionResult?>>? _readRoi;
 
+    /// <summary>
+    /// Null in the ordinary console run, where the printed summary is the only thing that reads
+    /// <see cref="_records"/>. Set by <see cref="PluginHostOptions.RecordSink"/> for an embedding
+    /// host — the replay harness, primarily — that needs the records themselves rather than a tally.
+    /// </summary>
+    private readonly Action<TrackerRecord>? _recordSink;
+
     public PluginServices(List<TrackerRecord> records, IPluginOutput output, bool verbose,
         Func<RoiRect?, string, CancellationToken, Task<string?>>? dumpFrame,
-        Func<RoiSubscription, CancellationToken, Task<OcrRegionResult?>>? readRoi = null)
+        Func<RoiSubscription, CancellationToken, Task<OcrRegionResult?>>? readRoi = null,
+        Action<TrackerRecord>? recordSink = null)
     {
         _records = records;
         _output = output;
         _verbose = verbose;
         _dumpFrame = dumpFrame;
         _readRoi = readRoi;
+        _recordSink = recordSink;
     }
 
     /// <summary>
@@ -54,6 +63,7 @@ internal sealed class PluginServices : IPluginServices
     public void Emit(TrackerRecord record)
     {
         _records.Add(record);
+        _recordSink?.Invoke(record);
 
         // One output call per capture: each WriteLine erases/redraws the status bar, so five
         // separate calls would flicker it five times per tracker event.
