@@ -15,8 +15,10 @@ and the engine's own thin smoke in `CaptureEngine.Tests/ReplayHarnessTests.cs`).
 - Frames are full captures, not cropped ROIs — the engine applies ROI geometry itself, so a
   corpus exercises the same reference-space-in/frame-space-out path production does.
 - The shared fixtures live under `tests/fixtures/corpus/<name>/` and are linked into whichever
-  test project needs them (`<None Include="..\fixtures\corpus\**\*.png" Link="Fixtures\Replay\..." />`)
-  — see `RefineryPlugin.Tests.csproj` and `MissionPlugin.Tests.csproj` for the pattern. The
+  test project needs them, one `<None Include="..\fixtures\corpus\<name>\**\*.png" Link="Fixtures\Replay\<name>\..." />`
+  per corpus — see `RefineryPlugin.Tests.csproj` and `MissionPlugin.Tests.csproj` for the pattern.
+  Scoped per corpus rather than a `corpus\**` catch-all, so one plugin's corpus never gets copied
+  into every other plugin's test output. The
   engine's own `Fixtures/engine-smoke` corpus (`CaptureEngine.Tests`) stays local to that project —
   it is the corpus essentially the whole engine-side suite drives (scan loop, gRPC host, SDK
   client, handshake, plugin host, and the `ReplayHarness` smoke), not just the harness.
