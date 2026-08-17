@@ -9,24 +9,13 @@ namespace RefineryPlugin.Tests;
 /// <see cref="SetupTransition.OpenedFresh"/> and <see cref="SetupTransition.DepartedTo"/> drive the
 /// accumulator reset / submit / cancel-clear.
 /// </summary>
-/// <remarks>
-/// The departure window is stated in wall time now, not a tick count. These tests advance a clock one
-/// <see cref="Scan"/> per reading against a window of <c>3 * Scan</c>, so a departure confirms on the
-/// third consecutive non-SETUP reading exactly as the monolith's three-tick rule did.
-/// </remarks>
 public class SetupDepartureDebouncerTests
 {
-    private static readonly TimeSpan Scan = TimeSpan.FromMilliseconds(500);
-    private static readonly TimeSpan Window = 3 * Scan;
-    private static readonly DateTime T0 = new(2026, 8, 17, 12, 0, 0, DateTimeKind.Utc);
-
-    private static DateTime At(int scans) => T0.Add(scans * Scan);
-
     [Fact]
     public void FirstSetupTick_OpensImmediately_NotDebounced()
     {
-        var d = new SetupDepartureDebouncer(Window);
-        var r = d.Observe(PanelState.Setup, At(0));
+        var d = new SetupDepartureDebouncer();
+        var r = d.Observe(PanelState.Setup);
         Assert.True(r.OpenedFresh);
         Assert.Null(r.DepartedTo);
     }
@@ -34,8 +23,8 @@ public class SetupDepartureDebouncerTests
     [Fact]
     public void NoneBeforeAnySetup_IsNoop()
     {
-        var d = new SetupDepartureDebouncer(Window);
-        var r = d.Observe(PanelState.None, At(0));
+        var d = new SetupDepartureDebouncer();
+        var r = d.Observe(PanelState.None);
         Assert.False(r.OpenedFresh);
         Assert.Null(r.DepartedTo);
     }
@@ -43,13 +32,13 @@ public class SetupDepartureDebouncerTests
     [Fact]
     public void OneTwoTickGlitchToNone_MidSetup_RevertsWithoutConfirming()
     {
-        var d = new SetupDepartureDebouncer(Window);
-        d.Observe(PanelState.Setup, At(0)); // opens
-        d.Observe(PanelState.Setup, At(1));
+        var d = new SetupDepartureDebouncer();
+        d.Observe(PanelState.Setup); // opens
+        d.Observe(PanelState.Setup);
 
-        var glitch1 = d.Observe(PanelState.None, At(2)); // 1 away tick
-        var glitch2 = d.Observe(PanelState.None, At(3)); // 2 away ticks — still short of the window
-        var backToSetup = d.Observe(PanelState.Setup, At(4)); // reverts — the window never elapsed
+        var glitch1 = d.Observe(PanelState.None); // 1 away tick
+        var glitch2 = d.Observe(PanelState.None); // 2 away ticks — still short of ConfirmTicks (3)
+        var backToSetup = d.Observe(PanelState.Setup); // reverts — the streak never completed
 
         Assert.Null(glitch1.DepartedTo);
         Assert.Null(glitch2.DepartedTo);
@@ -60,11 +49,11 @@ public class SetupDepartureDebouncerTests
     [Fact]
     public void OneTwoTickGlitchToProcessing_MidSetup_DoesNotFireSubmit()
     {
-        var d = new SetupDepartureDebouncer(Window);
-        d.Observe(PanelState.Setup, At(0));
+        var d = new SetupDepartureDebouncer();
+        d.Observe(PanelState.Setup);
 
-        var glitch = d.Observe(PanelState.Processing, At(1)); // 1 away tick — a spurious misread
-        var reverted = d.Observe(PanelState.Setup, At(2));    // OCR corrects itself next tick
+        var glitch = d.Observe(PanelState.Processing); // 1 away tick — a spurious misread
+        var reverted = d.Observe(PanelState.Setup);    // OCR corrects itself next tick
 
         Assert.Null(glitch.DepartedTo); // no submit signal
         Assert.False(reverted.OpenedFresh); // same session continues, accumulator untouched
@@ -73,12 +62,12 @@ public class SetupDepartureDebouncerTests
     [Fact]
     public void ThreeConsecutiveNoneTicks_ConfirmsCancel()
     {
-        var d = new SetupDepartureDebouncer(Window);
-        d.Observe(PanelState.Setup, At(0));
+        var d = new SetupDepartureDebouncer();
+        d.Observe(PanelState.Setup);
 
-        d.Observe(PanelState.None, At(1));
-        d.Observe(PanelState.None, At(2));
-        var confirmed = d.Observe(PanelState.None, At(3)); // window elapsed since the last SETUP
+        d.Observe(PanelState.None);
+        d.Observe(PanelState.None);
+        var confirmed = d.Observe(PanelState.None); // 3rd consecutive away tick
 
         Assert.Equal(PanelState.None, confirmed.DepartedTo);
     }
@@ -86,15 +75,15 @@ public class SetupDepartureDebouncerTests
     [Fact]
     public void ThreeConsecutiveNonSetupTicks_ConfirmsSubmit_EvenIfTheSpecificStateChanges()
     {
-        // The window counts ANY non-SETUP reading, not a specific repeated value — a genuine
+        // The away-streak counts ANY non-SETUP reading, not a specific repeated value — a genuine
         // transition often shows Processing for a tick or two before settling on Completed, and all
         // of those ticks should count toward the same departure.
-        var d = new SetupDepartureDebouncer(Window);
-        d.Observe(PanelState.Setup, At(0));
+        var d = new SetupDepartureDebouncer();
+        d.Observe(PanelState.Setup);
 
-        d.Observe(PanelState.Processing, At(1)); // away 1
-        d.Observe(PanelState.Completed, At(2));  // away 2 (different value, still counts)
-        var confirmed = d.Observe(PanelState.Completed, At(3)); // away 3
+        d.Observe(PanelState.Processing); // away 1
+        d.Observe(PanelState.Completed);  // away 2 (different value, still counts)
+        var confirmed = d.Observe(PanelState.Completed); // away 3
 
         Assert.Equal(PanelState.Completed, confirmed.DepartedTo);
     }
@@ -102,12 +91,12 @@ public class SetupDepartureDebouncerTests
     [Fact]
     public void DepartureConfirmed_ReportedOnlyOnce()
     {
-        var d = new SetupDepartureDebouncer(Window);
-        d.Observe(PanelState.Setup, At(0));
-        d.Observe(PanelState.None, At(1));
-        d.Observe(PanelState.None, At(2));
-        var first = d.Observe(PanelState.None, At(3));
-        var second = d.Observe(PanelState.None, At(4)); // already closed — no repeat signal
+        var d = new SetupDepartureDebouncer();
+        d.Observe(PanelState.Setup);
+        d.Observe(PanelState.None);
+        d.Observe(PanelState.None);
+        var first = d.Observe(PanelState.None);
+        var second = d.Observe(PanelState.None); // already closed — no repeat signal
 
         Assert.Equal(PanelState.None, first.DepartedTo);
         Assert.Null(second.DepartedTo);
@@ -116,13 +105,13 @@ public class SetupDepartureDebouncerTests
     [Fact]
     public void AfterConfirmedDeparture_NewSetupTick_OpensFreshSession()
     {
-        var d = new SetupDepartureDebouncer(Window);
-        d.Observe(PanelState.Setup, At(0));
-        d.Observe(PanelState.None, At(1));
-        d.Observe(PanelState.None, At(2));
-        d.Observe(PanelState.None, At(3)); // confirmed closed
+        var d = new SetupDepartureDebouncer();
+        d.Observe(PanelState.Setup);
+        d.Observe(PanelState.None);
+        d.Observe(PanelState.None);
+        d.Observe(PanelState.None); // confirmed closed
 
-        var reopened = d.Observe(PanelState.Setup, At(4));
+        var reopened = d.Observe(PanelState.Setup);
 
         Assert.True(reopened.OpenedFresh);
     }
@@ -130,19 +119,18 @@ public class SetupDepartureDebouncerTests
     [Fact]
     public void RevertingResetsTheAwayStreakCompletely_NotJustPauses()
     {
-        // Two away-ticks, revert, two more away-ticks — must NOT combine into a false confirmation:
-        // the revert pushes the SETUP anchor forward, so the window restarts from it.
-        var d = new SetupDepartureDebouncer(Window);
-        d.Observe(PanelState.Setup, At(0));
+        // Two away-ticks, revert, two more away-ticks — must NOT combine into a false 4-tick streak.
+        var d = new SetupDepartureDebouncer();
+        d.Observe(PanelState.Setup);
 
-        d.Observe(PanelState.None, At(1)); // away 1
-        d.Observe(PanelState.None, At(2)); // away 2
-        d.Observe(PanelState.Setup, At(3)); // revert — anchor moves to here
+        d.Observe(PanelState.None); // away 1
+        d.Observe(PanelState.None); // away 2
+        d.Observe(PanelState.Setup); // revert — streak drops to 0
 
-        var away1Again = d.Observe(PanelState.None, At(4));
-        var away2Again = d.Observe(PanelState.None, At(5));
+        var away1Again = d.Observe(PanelState.None);
+        var away2Again = d.Observe(PanelState.None);
 
         Assert.Null(away1Again.DepartedTo);
-        Assert.Null(away2Again.DepartedTo); // only 2 scans since the revert — window not yet elapsed
+        Assert.Null(away2Again.DepartedTo); // only 2 consecutive since the revert — not yet confirmed
     }
 }

@@ -25,7 +25,6 @@ internal static class RefineryTicks
     public static readonly (byte B, byte G, byte R) ToggleOff = (244, 244, 251);
 
     public static TickData Tick(
-        DateTimeOffset at,
         string panel,
         string modal = "",
         string station = "",
@@ -39,7 +38,7 @@ internal static class RefineryTicks
         params RoiId[] erroredRois)
     {
         var errored = new HashSet<RoiId>(erroredRois);
-        var b = new TickDataBuilder().At(at);
+        var b = new TickDataBuilder();
 
         AddText(b, errored, Rois.Panel.Id, panel);
         AddText(b, errored, Rois.Modal.Id, modal);

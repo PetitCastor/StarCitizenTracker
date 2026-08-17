@@ -11,7 +11,7 @@ namespace RefineryPlugin;
 
 /// <summary>
 /// Tracks refinery work orders across the SETUP / PROCESSING / COMPLETED panels. A thin lifecycle
-/// shell over <see cref="RefineryLogic"/>: it owns the order ledger — opened on the first connect and
+/// shell over <see cref="RefineryLogic"/>: it owns the order ledger — opened on the first tick and
 /// kept across reconnects — and hands each tick to the logic, which does the parsing, the
 /// scroll-stitching and the state machine. Everything the split isolates (connecting, subscribing,
 /// reconnecting, cancelling, summarising) is <see cref="TrackerPluginHost"/>'s.
@@ -28,11 +28,12 @@ public sealed class RefineryPlugin : ITrackerPlugin
 
     /// <param name="config">Plugin settings; the host reads its own <c>PipeName</c>/<c>SaveDebugFrames</c>
     /// from the same instance via <see cref="PluginHostOptions.Config"/>.</param>
-    /// <param name="ledgerOverride">Resolves the <c>--ledger</c> CLI value at connect time, or null.
-    /// A closure rather than a string because the host parses the argument after this plugin is
-    /// constructed but before the first <see cref="SessionEvent.Connected"/> that reads it.</param>
-    /// <param name="onLedgerOpened">Test seam: invoked with the ledger the moment it is opened, so a
-    /// replay-parity test can assert on what a full host run wrote without a path to reload.</param>
+    /// <param name="ledgerOverride">Resolves the <c>--ledger</c> CLI value when the ledger is opened,
+    /// or null. A closure rather than a string because the host parses the argument after this plugin
+    /// is constructed but before the first tick that reads it.</param>
+    /// <param name="onLedgerOpened">Test seam: invoked with the ledger the moment it is opened (on the
+    /// first tick), so a replay-parity test can assert on what a full host run wrote without a path to
+    /// reload.</param>
     public RefineryPlugin(RefineryConfig config, Func<string?>? ledgerOverride = null,
         Action<OrderLedger>? onLedgerOpened = null)
     {
@@ -51,33 +52,37 @@ public sealed class RefineryPlugin : ITrackerPlugin
     // in RefineryLogic. The host still latches once-per-change ROI-failure reporting on its behalf.
     public RoiErrorPolicy ErrorPolicy => RoiErrorPolicy.SkipErrored;
 
-    /// <summary>
-    /// Opens the ledger on the FIRST connect only. A reconnect keeps it — the same way it keeps
-    /// <see cref="RefineryLogic"/>'s panel state — because the merge is idempotent and what the plugin
-    /// already recorded is still true. Only the engine knows whether it is replaying a corpus, which
-    /// is why the throwaway-vs-real decision cannot be made until this event arrives.
-    /// </summary>
-    public void OnSessionEvent(SessionEvent evt)
-    {
-        if (evt is not SessionEvent.Connected connected || _ledger is not null)
-            return;
-
-        var target = LedgerTargetResolver.Resolve(
-            connected.Engine.ReplayMode, _config.LedgerEnabled, _ledgerOverride?.Invoke(), _config.LedgerPath);
-        _ledgerPath = target.Path;
-        _ledger = new OrderLedger(_ledgerPath);
-        _ledger.Load();
-        _onLedgerOpened?.Invoke(_ledger);
-    }
-
     public Task OnTickAsync(TickContext ctx, CancellationToken ct)
     {
-        // Built on the first tick, when the services are in hand and the ledger the preceding
-        // Connected event opened is ready. The debounce window is three scans at the engine's own
-        // reported cadence — 1.5 s at the stock 500 ms — which is the monolith's three-tick rule
-        // restated so it holds whatever the engine is configured to scan at.
-        _logic ??= new RefineryLogic(ctx.Services, _ledger!, 3 * ctx.Services.Engine.ScanInterval);
+        // Everything is built on the FIRST tick, kept for the rest of the run: this is the earliest
+        // point the plugin holds an IPluginServices to open the ledger against (SessionEvent.Connected
+        // carries no output handle), and by now services.Engine is the real connected engine, not the
+        // placeholder — so ReplayMode is authoritative. A reconnect keeps both ledger and logic (the
+        // _logic ??= guard), the same reason the monolith's RefineryRunner kept its factory result:
+        // the merge is idempotent, so a panel still on screen after a reconnect re-observes into the
+        // same record.
+        _logic ??= Build(ctx.Services);
         return _logic.OnTickAsync(ctx.Tick, ct);
+    }
+
+    private RefineryLogic Build(IPluginServices services)
+    {
+        // Only the engine knows whether it is replaying a corpus, which is why the throwaway-vs-real
+        // ledger decision waits until here. Warn goes to services.Log so the ledger's durability
+        // diagnostics — malformed-line skips, read failures, and the "write failed, keeping in memory"
+        // notice — are actually surfaced (the monolith passed sink.WriteLine for exactly this).
+        var target = LedgerTargetResolver.Resolve(
+            services.Engine.ReplayMode, _config.LedgerEnabled, _ledgerOverride?.Invoke(), _config.LedgerPath);
+        _ledgerPath = target.Path;
+        _ledger = new OrderLedger(_ledgerPath, services.Log);
+        _ledger.Load();
+
+        // The connect-time announcement the monolith printed, including the replay/disabled note that
+        // tells the user a throwaway file is in use rather than their real orders.jsonl.
+        services.Log($"Ledger:    {_ledgerPath}{target.Note}");
+        _onLedgerOpened?.Invoke(_ledger);
+
+        return new RefineryLogic(services, _ledger);
     }
 
     /// <summary>The end-of-run ledger summary the monolith printed: a count per state under the path
@@ -86,7 +91,7 @@ public sealed class RefineryPlugin : ITrackerPlugin
     {
         if (_ledger is null)
         {
-            yield return "Ledger: not opened (never connected to an engine)";
+            yield return "Ledger: not opened (never received a tick from an engine)";
             yield break;
         }
 

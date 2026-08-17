@@ -56,20 +56,16 @@ public sealed class RefineryLogic
     private readonly OrderLedger _ledger;
 
     private readonly PanelStateMachine _machine = new();
-    private readonly SetupDepartureDebouncer _setupDebouncer;
+    private readonly SetupDepartureDebouncer _setupDebouncer = new();
     private Accumulator _acc = new();
     private WorkOrder? _lastOrder;      // the order to advance to Collected when the panel closes
     private bool _expectCollect;        // saw a completed/processing panel → watch for the modal even after the header is gone
     private bool _observedThisCycle;    // the current completed/processing cycle actually produced a yield read
 
-    /// <param name="setupDepartureWindow">How long the panel must read non-SETUP before a departure is
-    /// trusted — the plugin passes three engine scans, so the monolith's three-tick rule holds at any
-    /// cadence. See <see cref="SetupDepartureDebouncer"/>.</param>
-    public RefineryLogic(IPluginServices services, OrderLedger ledger, TimeSpan setupDepartureWindow)
+    public RefineryLogic(IPluginServices services, OrderLedger ledger)
     {
         _services = services;
         _ledger = ledger;
-        _setupDebouncer = new SetupDepartureDebouncer(setupDepartureWindow);
     }
 
     // Refine toggle: orange/red fill when ON (R high, B low), white knob when OFF (R≈B), dark when
@@ -107,7 +103,7 @@ public sealed class RefineryLogic
         // SetupDepartureDebouncer for the confirm-N-ticks-before-acting rule. This only gates the
         // accumulator lifecycle — panel *content* below is still read every tick from the raw
         // classification, so a genuinely-transitioned panel is never read late.
-        var transition = _setupDebouncer.Observe(state, tick.Timestamp);
+        var transition = _setupDebouncer.Observe(state);
         if (transition.OpenedFresh)
         {
             // A fresh SETUP starts a new order — reset the stitching accumulator. _lastOrder belongs

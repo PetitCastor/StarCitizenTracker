@@ -21,34 +21,34 @@ internal readonly record struct SetupTransition(bool OpenedFresh, PanelState? De
 /// of misreading a ROI meant for a different panel layout).
 ///
 /// Entering SETUP is immediate (not debounced): a single SETUP tick starts a session right away, same
-/// as the old tracker's Idle → Accumulating edge. Leaving SETUP requires the panel to read non-SETUP
-/// for at least <see cref="_window"/> after the last SETUP reading — a raw SETUP reading at any point
-/// pushes that anchor forward, so a session that blips away for a tick or two and comes right back is
-/// treated as if nothing happened (no accumulator reset, no submit). The confirming ticks do NOT need
-/// to be the same specific state (e.g. Processing then Completed then Completed still counts) — only
-/// that none of them is SETUP — because once the panel is genuinely away from SETUP, which exact
-/// non-SETUP state it settles on is irrelevant to "did SETUP really close."
+/// as the old tracker's Idle → Accumulating edge. Leaving SETUP requires <see cref="ConfirmTicks"/>
+/// consecutive non-SETUP ticks with no reversion back to SETUP in between — a raw SETUP reading at any
+/// point resets the away-streak to zero, so a session that blips away for a tick or two and comes
+/// right back is treated as if nothing happened (no accumulator reset, no submit). The confirming
+/// ticks do NOT need to be the same specific state (e.g. Processing then Completed then Completed
+/// still counts) — only that none of them is SETUP — because once the panel is genuinely away from
+/// SETUP, which exact non-SETUP state it settles on is irrelevant to "did SETUP really close."
 /// </remarks>
 /// <remarks>
-/// The window is stated in wall time (from the tick's own <c>Timestamp</c>) rather than in a tick
-/// count, because the plugin no longer owns the scan cadence — the engine reports it. The plugin
-/// passes three scan intervals, so at the stock 500 ms this confirms on the third consecutive
-/// non-SETUP tick exactly as the monolith's <c>AnchorGoneThreshold</c> of 3 did, but the rule now
-/// survives an engine configured to scan at a different rate.
+/// A count of confirming FRAMES, deliberately not a wall-clock window. TASK-11 sketched a
+/// <c>TimeSpan</c> window (three scan intervals) to decouple the rule from cadence, but replay runs
+/// the scan loop flat out — <see cref="ScanLoop"/> stamps every tick with real <c>UtcNow</c> and does
+/// not sleep <c>ScanInterval</c> between frames — so a wall-clock window turns "N confirming frames"
+/// into "however many frames elapse ≥1.5 s of real OCR time", which depends on machine speed and
+/// makes replay non-deterministic (a fast box confirms in too few frames, or never within the corpus).
+/// A frame count is invariant across live and replay, which is the property the debounce needs.
 /// </remarks>
 internal sealed class SetupDepartureDebouncer
 {
-    /// <summary>How long the panel must read non-SETUP, measured from the most recent SETUP reading,
-    /// before a departure is trusted. Same spirit as the old tracker's <c>AnchorGoneThreshold</c>.</summary>
-    private readonly TimeSpan _window;
+    /// <summary>Consecutive non-SETUP ticks required before a SETUP departure is trusted. Same
+    /// constant and spirit as the old tracker's <c>AnchorGoneThreshold</c>.</summary>
+    internal const int ConfirmTicks = 3;
 
-    private bool _open;               // a SETUP session is currently believed open
-    private DateTime _lastSetupSeen;  // timestamp of the most recent raw == Setup tick, while open
+    private bool _open;      // a SETUP session is currently believed open
+    private int _awayStreak; // consecutive raw != Setup ticks since the last raw == Setup, while open
 
-    public SetupDepartureDebouncer(TimeSpan window) => _window = window;
-
-    /// <summary>Feeds one tick's raw panel classification and the frame's own timestamp.</summary>
-    public SetupTransition Observe(PanelState raw, DateTime timestamp)
+    /// <summary>Feeds one tick's raw panel classification.</summary>
+    public SetupTransition Observe(PanelState raw)
     {
         if (!_open)
         {
@@ -56,20 +56,21 @@ internal sealed class SetupDepartureDebouncer
                 return default; // still closed; nothing to do
 
             _open = true;
-            _lastSetupSeen = timestamp;
+            _awayStreak = 0;
             return new SetupTransition(OpenedFresh: true, DepartedTo: null);
         }
 
         if (raw == PanelState.Setup)
         {
-            _lastSetupSeen = timestamp; // any SETUP reading proves the session never really left
+            _awayStreak = 0; // any SETUP reading proves the session never really left
             return default;
         }
 
-        if (timestamp - _lastSetupSeen < _window)
+        if (++_awayStreak < ConfirmTicks)
             return default; // still within the grace window — too soon to trust the departure
 
         _open = false;
+        _awayStreak = 0;
         return new SetupTransition(OpenedFresh: false, DepartedTo: raw);
     }
 }

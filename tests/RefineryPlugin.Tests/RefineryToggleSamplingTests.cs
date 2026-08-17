@@ -19,9 +19,6 @@ public class RefineryToggleSamplingTests
         new("QUANTANIUM", [785, 800, 750], 200),
     ];
 
-    private static readonly TimeSpan Scan = EngineDefaults.DefaultScanInterval;
-    private static readonly DateTimeOffset T0 = new(2026, 8, 17, 12, 0, 0, TimeSpan.Zero);
-
     [Theory]
     [InlineData(200, 50, true)]   // clearly orange/red (ON)
     [InlineData(80, 80, false)]   // clearly neutral gray
@@ -42,13 +39,13 @@ public class RefineryToggleSamplingTests
         {
             var services = new FakePluginServices();
             var ledger = new OrderLedger(Path.Combine(dir.FullName, "orders.jsonl"));
-            var logic = new RefineryLogic(services, ledger, 3 * services.Engine.ScanInterval);
+            var logic = new RefineryLogic(services, ledger);
 
             // Tick 1 stitches the rows; the hotkey on tick 2 forces the accumulator into the ledger
             // (manual runs before the scan), which is the only place the flags are observable.
-            await logic.OnTickAsync(Tick(T0, "SETUP", station: "STANTON GATEWAY",
+            await logic.OnTickAsync(Tick("SETUP", station: "STANTON GATEWAY",
                 setupRows: Rows, toggle: on ? ToggleOn : ToggleOff));
-            await logic.OnTickAsync(Tick(T0.Add(Scan), "SETUP", station: "STANTON GATEWAY",
+            await logic.OnTickAsync(Tick("SETUP", station: "STANTON GATEWAY",
                 setupRows: Rows, toggle: on ? ToggleOn : ToggleOff, manual: true));
 
             var order = Assert.Single(ledger.All);
@@ -74,11 +71,11 @@ public class RefineryToggleSamplingTests
         {
             var services = new FakePluginServices();
             var ledger = new OrderLedger(Path.Combine(dir.FullName, "orders.jsonl"));
-            var logic = new RefineryLogic(services, ledger, 3 * services.Engine.ScanInterval);
+            var logic = new RefineryLogic(services, ledger);
 
-            await logic.OnTickAsync(Tick(T0, "SETUP", station: "STANTON GATEWAY", setupRows: Rows,
+            await logic.OnTickAsync(Tick("SETUP", station: "STANTON GATEWAY", setupRows: Rows,
                 toggle: ToggleOn, erroredRois: [Rois.Toggles.Id]));
-            await logic.OnTickAsync(Tick(T0.Add(Scan), "SETUP", station: "STANTON GATEWAY", setupRows: Rows,
+            await logic.OnTickAsync(Tick("SETUP", station: "STANTON GATEWAY", setupRows: Rows,
                 toggle: ToggleOn, erroredRois: [Rois.Toggles.Id], manual: true));
 
             Assert.Empty(ledger.All);
