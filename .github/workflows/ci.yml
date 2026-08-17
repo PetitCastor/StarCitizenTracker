@@ -31,6 +31,21 @@ jobs:
       - name: Test
         run: dotnet test StarCitizenTracker.slnx --no-build -c Release --verbosity normal
 
+      # A plugin owns parsing and nothing else: its code must not name a transport type (Grpc,
+      # RpcException), the wire proto namespace, or the engine assembly. `dotnet build` cannot catch a
+      # re-coupling — a plugin that added `using Grpc.Core;` still compiles — so this greps the plugin
+      # SOURCES (.cs only: the engine pipe name legitimately appears as a string in config.json) for
+      # the forbidden references. rg exits 0 when it finds a hit and 1 when it finds none, so a hit is
+      # the failure: report it and exit 1, otherwise let the clean (rg-1) run pass.
+      - name: Plugin boundary grep gate
+        shell: bash
+        run: |
+          if rg -n -g '*.cs' "using Grpc|RpcException|CaptureContracts\.Proto|StarCitizenTracker\.CaptureEngine" src/Plugins/; then
+            echo "::error::Plugin boundary violation — a plugin references an engine/transport internal (listed above)."
+            exit 1
+          fi
+          echo "Plugin boundary clean: no engine/transport references under src/Plugins/."
+
   # The wire contract is the one thing in this repo that two separately-shipped processes both
   # depend on, and `dotnet build` cannot see a break in it: regenerating C# from a proto that
   # dropped a field succeeds, and the plugin built against the old field only fails once it is

@@ -25,10 +25,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Plugins\RefineryPlugin\RefineryPlugin.csproj" />
-    <!-- Ticks are built here from the wire type the engine would have sent, so both the SDK and
-         the contracts are named directly rather than leaned on transitively. -->
     <ProjectReference Include="..\..\src\TrackerSdk\TrackerSdk.csproj" />
+    <!-- Ticks are built through TrackerSdk.Testing's public TickDataBuilder now, not the SDK's
+         internal TickData.From (the InternalsVisibleTo grant that died with TASK-11). CaptureContracts
+         still comes in directly for RoiRect/RectF geometry in the fabricated OCR word boxes. -->
     <ProjectReference Include="..\..\src\CaptureContracts\CaptureContracts.csproj" />
+    <ProjectReference Include="..\..\src\TrackerSdk.Testing\TrackerSdk.Testing.csproj" />
   </ItemGroup>
 
 </Project>

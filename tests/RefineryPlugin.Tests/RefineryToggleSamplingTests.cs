@@ -1,7 +1,8 @@
 using RefineryPlugin.Orders;
-using Xunit;
-using static RefineryPlugin.Tests.TickFactory;
 using TrackerSdk;
+using TrackerSdk.Testing;
+using Xunit;
+using static RefineryPlugin.Tests.RefineryTicks;
 
 namespace RefineryPlugin.Tests;
 
@@ -36,10 +37,9 @@ public class RefineryToggleSamplingTests
         var dir = Directory.CreateTempSubdirectory("refinery-plugin-toggle-tests");
         try
         {
-            using var sink = new ConsoleSink();
-            var records = new List<TrackerRecord>();
+            var services = new FakePluginServices();
             var ledger = new OrderLedger(Path.Combine(dir.FullName, "orders.jsonl"));
-            var logic = new RefineryLogic(records.Add, sink, verbose: false, dumpFrame: null, ledger);
+            var logic = new RefineryLogic(services, ledger);
 
             // Tick 1 stitches the rows; the hotkey on tick 2 forces the accumulator into the ledger
             // (manual runs before the scan), which is the only place the flags are observable.
@@ -69,9 +69,9 @@ public class RefineryToggleSamplingTests
         var dir = Directory.CreateTempSubdirectory("refinery-plugin-toggle-tests");
         try
         {
-            using var sink = new ConsoleSink();
+            var services = new FakePluginServices();
             var ledger = new OrderLedger(Path.Combine(dir.FullName, "orders.jsonl"));
-            var logic = new RefineryLogic(_ => { }, sink, verbose: false, dumpFrame: null, ledger);
+            var logic = new RefineryLogic(services, ledger);
 
             await logic.OnTickAsync(Tick("SETUP", station: "STANTON GATEWAY", setupRows: Rows,
                 toggle: ToggleOn, erroredRois: [Rois.Toggles.Id]));

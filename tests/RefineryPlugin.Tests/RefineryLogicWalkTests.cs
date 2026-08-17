@@ -1,7 +1,8 @@
 using RefineryPlugin.Orders;
-using Xunit;
-using static RefineryPlugin.Tests.TickFactory;
 using TrackerSdk;
+using TrackerSdk.Testing;
+using Xunit;
+using static RefineryPlugin.Tests.RefineryTicks;
 
 namespace RefineryPlugin.Tests;
 
@@ -35,8 +36,7 @@ public class RefineryLogicWalkTests : IDisposable
     private const string YieldTotal = "YIELD 1850"; // == 1100 + 750, so the checksum passes
 
     private readonly DirectoryInfo _dir = Directory.CreateTempSubdirectory("refinery-plugin-tests");
-    private readonly ConsoleSink _sink = new();
-    private readonly List<TrackerRecord> _records = [];
+    private readonly FakePluginServices _services = new();
     private readonly OrderLedger _ledger;
     private readonly RefineryLogic _logic;
 
@@ -44,12 +44,11 @@ public class RefineryLogicWalkTests : IDisposable
     {
         _ledger = new OrderLedger(Path.Combine(_dir.FullName, "orders.jsonl"));
         _ledger.Load();
-        _logic = new RefineryLogic(_records.Add, _sink, verbose: false, dumpFrame: null, _ledger);
+        _logic = new RefineryLogic(_services, _ledger);
     }
 
     public void Dispose()
     {
-        _sink.Dispose();
         _dir.Delete(recursive: true);
         GC.SuppressFinalize(this);
     }
@@ -73,7 +72,7 @@ public class RefineryLogicWalkTests : IDisposable
         Assert.Empty(_ledger.All); // nothing is written until the panel leaves SETUP
 
         // PROCESSING: the yield panel is observed straight away, and the SETUP departure is only
-        // trusted (and submitted) after SetupDepartureDebouncer.ConfirmTicks non-SETUP ticks.
+        // trusted (and submitted) after three consecutive non-SETUP ticks (SetupDepartureDebouncer.ConfirmTicks).
         await YieldTick("PROCESSING", total: "");
         var afterFirstProcessing = Assert.Single(_ledger.All);
         Assert.Equal(OrderState.Processing, afterFirstProcessing.State);
@@ -115,9 +114,9 @@ public class RefineryLogicWalkTests : IDisposable
         Assert.Equal(Process, collected.Process);
 
         // Three console captures: the SETUP submit, the order turning Ready, and the collect.
-        Assert.Equal(3, _records.Count);
-        Assert.All(_records, r => Assert.Equal(TriggerKind.Auto, r.Trigger));
-        Assert.All(_records, r => Assert.Equal("refinery", r.Tracker));
+        Assert.Equal(3, _services.Emitted.Count);
+        Assert.All(_services.Emitted, r => Assert.Equal(TriggerKind.Auto, r.Trigger));
+        Assert.All(_services.Emitted, r => Assert.Equal("refinery", r.Tracker));
     }
 
     /// <summary>
@@ -134,7 +133,7 @@ public class RefineryLogicWalkTests : IDisposable
         await YieldTick("COMPLETED");
         await YieldTick("COMPLETED", modal: "CONFIRM DELIVERY");
         await YieldTick("COMPLETED");                          // CANCEL: modal dismissed, panel still up
-        await _logic.OnTickAsync(Tick(""));                    // panel finally closes
+        await _logic.OnTickAsync(Tick(""));            // panel finally closes
 
         Assert.Equal(OrderState.Ready, Assert.Single(_ledger.All).State);
     }
@@ -175,7 +174,7 @@ public class RefineryLogicWalkTests : IDisposable
         var order = Assert.Single(_ledger.All);
         Assert.Equal(OrderState.Pending, order.State);
         Assert.Equal(["SETUP"], order.Sources);
-        Assert.Equal(TriggerKind.Manual, Assert.Single(_records).Trigger);
+        Assert.Equal(TriggerKind.Manual, Assert.Single(_services.Emitted).Trigger);
     }
 
     /// <summary>
@@ -188,7 +187,7 @@ public class RefineryLogicWalkTests : IDisposable
     {
         await _logic.OnTickAsync(Tick("", footer: Footer, setupRows: SetupRows, manual: true));
 
-        var record = Assert.Single(_records);
+        var record = Assert.Single(_services.Emitted);
         Assert.Equal(TriggerKind.Manual, record.Trigger);
         Assert.Contains("[raw list ROI]", record.RawText);
         Assert.Contains("TITANIUM (ORE) 262 1200 1100", record.RawText);
