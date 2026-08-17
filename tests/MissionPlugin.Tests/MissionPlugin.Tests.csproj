@@ -25,10 +25,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Plugins\MissionPlugin\MissionPlugin.csproj" />
-    <!-- Ticks are built here from the wire type the engine would have sent, so both the SDK and
-         the contracts are named directly rather than leaned on transitively. -->
     <ProjectReference Include="..\..\src\TrackerSdk\TrackerSdk.csproj" />
+    <!-- Ticks are built through TrackerSdk.Testing's public TickDataBuilder now, not the wire
+         type directly, but RoiRect (Rois.Pane.Rect assertions) still comes from here. -->
     <ProjectReference Include="..\..\src\CaptureContracts\CaptureContracts.csproj" />
+    <ProjectReference Include="..\..\src\TrackerSdk.Testing\TrackerSdk.Testing.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,8 +1,8 @@
 using CaptureContracts;
 using MissionPlugin;
-using Xunit;
-using static MissionPlugin.Tests.TickFactory;
 using TrackerSdk;
+using TrackerSdk.Testing;
+using Xunit;
 
 namespace MissionPlugin.Tests;
 
@@ -13,20 +13,33 @@ namespace MissionPlugin.Tests;
 /// </summary>
 public class MissionLogicTickTests
 {
+    private static TickData Tick(string tabText, string paneText = "", bool manual = false,
+        DateTimeOffset? at = null)
+    {
+        var builder = new TickDataBuilder().Text(Rois.Tab.Id, tabText).Text(Rois.Pane.Id, paneText);
+        if (manual)
+            builder.Manual();
+        if (at is { } instant)
+            builder.At(instant);
+        return builder.Build();
+    }
+
+    private static TickContext Ctx(TickData tick, IPluginServices services) =>
+        TickContext.ForTesting(tick, services);
+
     [Fact]
     public async Task CounterIncrement_EmitsOneAutoRecordCarryingThePaneText()
     {
-        using var sink = new ConsoleSink();
-        var records = new List<TrackerRecord>();
-        var logic = new MissionLogic(records.Add, sink, verbose: false, dumpFrame: null);
+        var services = new FakePluginServices();
+        var plugin = new MissionPlugin();
 
         // First sighting: the counter is merely visible, which is the contract manager opening.
-        await logic.OnTickAsync(Tick("ACCEPTED (2/5)", "stale pane"));
-        Assert.Empty(records);
+        await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (2/5)", "stale pane"), services), default);
+        Assert.Empty(services.Emitted);
 
-        await logic.OnTickAsync(Tick("ACCEPTED (3/5)", "MISSION: Deliver crates"));
+        await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (3/5)", "MISSION: Deliver crates"), services), default);
 
-        var record = Assert.Single(records);
+        var record = Assert.Single(services.Emitted);
         Assert.Equal(TriggerKind.Auto, record.Trigger);
         Assert.Equal("missions", record.Tracker);
         Assert.Equal("MISSION: Deliver crates", record.RawText);
@@ -35,27 +48,25 @@ public class MissionLogicTickTests
     [Fact]
     public async Task CounterDecrement_EmitsNothing()
     {
-        using var sink = new ConsoleSink();
-        var records = new List<TrackerRecord>();
-        var logic = new MissionLogic(records.Add, sink, verbose: false, dumpFrame: null);
+        var services = new FakePluginServices();
+        var plugin = new MissionPlugin();
 
-        await logic.OnTickAsync(Tick("ACCEPTED (3/5)", "pane"));
-        await logic.OnTickAsync(Tick("ACCEPTED (2/5)", "pane"));
+        await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (3/5)", "pane"), services), default);
+        await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (2/5)", "pane"), services), default);
 
         // A completion or an abandon moves the counter too; only an increment is an accept.
-        Assert.Empty(records);
+        Assert.Empty(services.Emitted);
     }
 
     [Fact]
     public async Task ManualTick_EmitsAManualRecordEvenWithNoCounterOnScreen()
     {
-        using var sink = new ConsoleSink();
-        var records = new List<TrackerRecord>();
-        var logic = new MissionLogic(records.Add, sink, verbose: false, dumpFrame: null);
+        var services = new FakePluginServices();
+        var plugin = new MissionPlugin();
 
-        await logic.OnTickAsync(Tick("no counter here", "MISSION: Escort", manual: true));
+        await plugin.OnTickAsync(Ctx(Tick("no counter here", "MISSION: Escort", manual: true), services), default);
 
-        var record = Assert.Single(records);
+        var record = Assert.Single(services.Emitted);
         Assert.Equal(TriggerKind.Manual, record.Trigger);
         Assert.Equal("MISSION: Escort", record.RawText);
     }
@@ -68,14 +79,13 @@ public class MissionLogicTickTests
     [Fact]
     public async Task ManualOnTheSameTickAsAnIncrement_EmitsManualThenAuto()
     {
-        using var sink = new ConsoleSink();
-        var records = new List<TrackerRecord>();
-        var logic = new MissionLogic(records.Add, sink, verbose: false, dumpFrame: null);
+        var services = new FakePluginServices();
+        var plugin = new MissionPlugin();
 
-        await logic.OnTickAsync(Tick("ACCEPTED (2/5)", "pane"));
-        await logic.OnTickAsync(Tick("ACCEPTED (3/5)", "pane", manual: true));
+        await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (2/5)", "pane"), services), default);
+        await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (3/5)", "pane", manual: true), services), default);
 
-        Assert.Equal([TriggerKind.Manual, TriggerKind.Auto], records.Select(r => r.Trigger));
+        Assert.Equal([TriggerKind.Manual, TriggerKind.Auto], services.Emitted.Select(r => r.Trigger));
     }
 
     /// <summary>
@@ -86,7 +96,6 @@ public class MissionLogicTickTests
     [Fact]
     public async Task WithDebugDumps_WritesTheOcrTextBesideTheEnginesPng()
     {
-        using var sink = new ConsoleSink();
         var dir = Directory.CreateTempSubdirectory("mission-plugin-tests");
         try
         {
@@ -94,14 +103,18 @@ public class MissionLogicTickTests
             RoiRect? requestedRoi = null;
             string? requestedPrefix = null;
 
-            var logic = new MissionLogic(_ => { }, sink, verbose: false, dumpFrame: (roi, prefix) =>
+            var services = new FakePluginServices
             {
-                requestedRoi = roi;
-                requestedPrefix = prefix;
-                return Task.FromResult<string?>(pngPath);
-            });
+                DumpFrameHandler = (roi, prefix, _) =>
+                {
+                    requestedRoi = roi;
+                    requestedPrefix = prefix;
+                    return Task.FromResult<string?>(pngPath);
+                },
+            };
+            var plugin = new MissionPlugin();
 
-            await logic.OnTickAsync(Tick("no counter", "MISSION: Salvage", manual: true));
+            await plugin.OnTickAsync(Ctx(Tick("no counter", "MISSION: Salvage", manual: true), services), default);
 
             Assert.Equal(Rois.Pane.Rect, requestedRoi);
             Assert.Equal("mission_pane", requestedPrefix);
@@ -122,16 +135,15 @@ public class MissionLogicTickTests
     [Fact]
     public async Task Record_IsStampedWithTheTicksTimeNotTheProcessingTime()
     {
-        using var sink = new ConsoleSink();
-        var records = new List<TrackerRecord>();
-        var logic = new MissionLogic(records.Add, sink, verbose: false, dumpFrame: null);
+        var services = new FakePluginServices();
+        var plugin = new MissionPlugin();
 
         var tick = Tick("no counter", "MISSION: Escort", manual: true,
             at: DateTimeOffset.UtcNow.AddMinutes(-5));
 
-        await logic.OnTickAsync(tick);
+        await plugin.OnTickAsync(Ctx(tick, services), default);
 
-        Assert.Equal(tick.Timestamp, Assert.Single(records).Timestamp);
+        Assert.Equal(tick.Timestamp, Assert.Single(services.Emitted).Timestamp);
     }
 
     /// <summary>
@@ -143,18 +155,19 @@ public class MissionLogicTickTests
     [Fact]
     public async Task WhenTheDebugDumpFails_TheAcceptStillCountsOnceAndDoesNotRefire()
     {
-        using var sink = new ConsoleSink();
-        var records = new List<TrackerRecord>();
-        var logic = new MissionLogic(records.Add, sink, verbose: false,
-            dumpFrame: (_, _) => throw new IOException("no space left on device"));
+        var services = new FakePluginServices
+        {
+            DumpFrameHandler = (_, _, _) => throw new IOException("no space left on device"),
+        };
+        var plugin = new MissionPlugin();
 
-        await logic.OnTickAsync(Tick("ACCEPTED (2/5)", "pane"));
-        await logic.OnTickAsync(Tick("ACCEPTED (3/5)", "MISSION: Deliver crates"));
+        await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (2/5)", "pane"), services), default);
+        await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (3/5)", "MISSION: Deliver crates"), services), default);
 
         // The counter has not moved again, so the next tick must be silent.
-        await logic.OnTickAsync(Tick("ACCEPTED (3/5)", "MISSION: Deliver crates"));
+        await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (3/5)", "MISSION: Deliver crates"), services), default);
 
-        var record = Assert.Single(records);
+        var record = Assert.Single(services.Emitted);
         Assert.Equal(TriggerKind.Auto, record.Trigger);
         Assert.Equal("MISSION: Deliver crates", record.RawText);
     }
@@ -166,13 +179,44 @@ public class MissionLogicTickTests
     [Fact]
     public async Task WithDebugDumps_WhenTheEngineHasNoFrame_StillEmitsAndWritesNothing()
     {
-        using var sink = new ConsoleSink();
-        var records = new List<TrackerRecord>();
-        var logic = new MissionLogic(records.Add, sink, verbose: false,
-            dumpFrame: (_, _) => Task.FromResult<string?>(null));
+        var services = new FakePluginServices
+        {
+            DumpFrameHandler = (_, _, _) => Task.FromResult<string?>(null),
+        };
+        var plugin = new MissionPlugin();
 
-        await logic.OnTickAsync(Tick("no counter", "MISSION: Bounty", manual: true));
+        await plugin.OnTickAsync(Ctx(Tick("no counter", "MISSION: Bounty", manual: true), services), default);
 
-        Assert.Equal("MISSION: Bounty", Assert.Single(records).RawText);
+        Assert.Equal("MISSION: Bounty", Assert.Single(services.Emitted).RawText);
+    }
+
+    /// <summary>
+    /// Under <see cref="RoiErrorPolicy.AbortTick"/> the host never calls <c>OnTickAsync</c> at all
+    /// while a subscribed region is failed — this exercises the plugin's own defence in depth, since
+    /// a direct unit test bypasses that host-side filtering. The old monolith read a failed "tab" the
+    /// same as a tab that read fine but showed no counter, which reset the accepted-count state on a
+    /// transient OCR error; the fix is treating "unreadable" and "read, no counter" as different.
+    /// </summary>
+    [Fact]
+    public async Task ErroredTabTick_EmitsNothingAndDoesNotResetCounterState()
+    {
+        var services = new FakePluginServices();
+        var plugin = new MissionPlugin();
+
+        await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (2/5)", "pane"), services), default);
+
+        var erroredTick = new TickDataBuilder()
+            .Errored(Rois.Tab.Id, "ocr failed")
+            .Text(Rois.Pane.Id, "pane")
+            .Build();
+        await plugin.OnTickAsync(Ctx(erroredTick, services), default);
+        Assert.Empty(services.Emitted);
+
+        // State was preserved through the errored tick: 2 -> 3 still reads as an increment.
+        await plugin.OnTickAsync(Ctx(Tick("ACCEPTED (3/5)", "MISSION: Deliver crates"), services), default);
+
+        var record = Assert.Single(services.Emitted);
+        Assert.Equal(TriggerKind.Auto, record.Trigger);
+        Assert.Equal("MISSION: Deliver crates", record.RawText);
     }
 }

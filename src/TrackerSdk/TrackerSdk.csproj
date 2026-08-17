@@ -31,8 +31,8 @@
     <!-- Plugin suites build ticks from the wire type the engine would have sent, which is what
          TickData.From maps: the alternative is a public factory that exists only for tests and
          that a plugin could then call in production code. Dies in TASK-10/11 once both plugins'
-         suites move onto TrackerSdk.Testing, the grant that survives a repo split. -->
-    <InternalsVisibleTo Include="MissionPlugin.Tests" />
+         suites move onto TrackerSdk.Testing, the grant that survives a repo split. MissionPlugin
+         moved in TASK-10; RefineryPlugin.Tests remains until TASK-11. -->
     <InternalsVisibleTo Include="RefineryPlugin.Tests" />
     <!-- TrackerSdk.Testing ships in this repo alongside the SDK, so unlike a plugin's own test
          project it still has InternalsVisibleTo once the engine/plugins split into separate repos
