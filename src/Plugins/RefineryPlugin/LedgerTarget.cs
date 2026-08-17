@@ -1,12 +1,6 @@
 namespace RefineryPlugin;
 
 /// <summary>
-/// Resolved ledger file path plus the console note to append after it, as returned by
-/// <see cref="LedgerTargetResolver.Resolve"/>.
-/// </summary>
-internal readonly record struct LedgerTarget(string Path, string Note);
-
-/// <summary>
 /// Decides where a run's <c>OrderLedger</c> writes, and whether that destination is the user's
 /// real ledger or a throwaway file that disappears with the temp directory.
 /// </summary>
@@ -26,7 +20,7 @@ internal static class LedgerTargetResolver
 {
     /// <summary>
     /// Reproduces <c>Program</c>'s connect-callback logic exactly: a throwaway path (under
-    /// <see cref="Path.GetTempPath"/>, named with a fresh <see cref="Guid"/> so concurrent runs
+    /// <see cref="System.IO.Path.GetTempPath"/>, named with a fresh <see cref="Guid"/> so concurrent runs
     /// cannot collide) whenever <paramref name="replayMode"/> is set or
     /// <paramref name="ledgerEnabled"/> is not, unless <paramref name="ledgerOverride"/> names a
     /// path explicitly — in which case that path wins outright and the note is blank.

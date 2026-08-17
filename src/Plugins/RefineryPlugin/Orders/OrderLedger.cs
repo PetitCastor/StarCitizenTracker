@@ -3,11 +3,6 @@ using System.Text.Json.Serialization;
 
 namespace RefineryPlugin.Orders;
 
-/// <summary>Outcome of one <see cref="OrderLedger.Observe"/> call.</summary>
-/// <param name="Merged">The record as it now stands after merging the observation.</param>
-/// <param name="Changed">Whether the observation changed anything worth persisting (drives the append).</param>
-public readonly record struct ObserveResult(WorkOrder Merged, bool Changed);
-
 /// <summary>
 /// Append-only JSONL store of refinery work orders. Any of the SETUP / PROCESSING / COMPLETED
 /// screens feeds observations in via <see cref="Observe"/>; the ledger merges them idempotently by

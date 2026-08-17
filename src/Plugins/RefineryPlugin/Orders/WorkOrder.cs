@@ -1,33 +1,6 @@
 namespace RefineryPlugin.Orders;
 
 /// <summary>
-/// Lifecycle of a refinery work order. Ordering is significant: the ledger only ever advances
-/// state monotonically (see <see cref="OrderStateExtensions.Rank"/>), so a later observation can
-/// promote Pending → Processing → Ready → Collected but never regress.
-/// </summary>
-public enum OrderState { Pending, Processing, Ready, Collected }
-
-/// <summary>
-/// Whether a materials read is trustworthy. <see cref="Complete"/> requires the COMPLETED-panel
-/// checksum (sum of row yields == printed total) to pass on a non-occluded frame with no
-/// edge-dropped rows; <see cref="Partial"/> is a checksum mismatch or dropped rows; <see cref="Unknown"/>
-/// is an occluded read (Confirm modal covering the list) that must never be promoted to Complete.
-/// </summary>
-public enum Completeness { Complete, Partial, Unknown }
-
-/// <summary>
-/// One material line of a work order, in integer cSCU (the raw on-screen unit). The ledger stores
-/// cSCU rather than the SETUP path's decimal SCU so that rounding drift can never split a record's
-/// identity or perturb a match score — divide by 100 only when displaying.
-/// </summary>
-/// <param name="Quality">
-/// The per-row QUALITY value shown on every panel. It is part of the material's identity: a single
-/// work order can list the same material name twice at different qualities (e.g. two TORITE rows,
-/// quality 262 and 785), so name alone would collapse them.
-/// </param>
-public sealed record OrderMaterial(string Name, int Quality, int QtyCscu, int YieldCscu, bool RefineOn);
-
-/// <summary>
 /// A persistent refinery work order, observed and merged across the SETUP / PROCESSING / COMPLETED
 /// screens. This is the ledger's record type: one line of <c>orders.jsonl</c> per meaningful change.
 /// </summary>
@@ -59,9 +32,3 @@ public sealed record WorkOrder(
     DateTime FirstSeen,
     DateTime LastSeen,
     IReadOnlyList<string> Sources);
-
-public static class OrderStateExtensions
-{
-    /// <summary>Monotonic ordering rank. The ledger advances to <c>Max(existing, observed)</c> and never regresses.</summary>
-    public static int Rank(this OrderState state) => (int)state;
-}
