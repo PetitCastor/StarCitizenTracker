@@ -95,7 +95,7 @@ public static class TrackerPluginHost
             // path it was written to. Null switches the whole debug path off inside the plugin.
             var services = new PluginServices(records, output, parsed.Verbose,
                 config.SaveDebugFrames ? client.DumpFrameAsync : null,
-                client.ReadRoiAsync);
+                client.ReadRoiAsync, options.RecordSink);
 
             output.WriteLine($"Pipe:      {parsed.PipeName}");
             output.WriteLine($"Debug:     {(config.SaveDebugFrames

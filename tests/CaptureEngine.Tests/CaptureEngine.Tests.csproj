@@ -35,6 +35,10 @@
     <!-- Same reason for the plugin: the replay-parity tests run engine + SDK + RefineryLogic in
          one process and assert the monolith's fixture outcomes still come out the far end. -->
     <ProjectReference Include="..\..\src\Plugins\RefineryPlugin\RefineryPlugin.csproj" />
+    <!-- ReplayHarness itself: unlike ReplayParityTests, its own tests spawn CaptureEngine.exe as a
+         real separate process rather than hosting the engine in-proc, so this reference is only for
+         EngineLocator/ReplayOptions/ReplayHarness/ReplayResult, never for the engine's own types. -->
+    <ProjectReference Include="..\..\src\TrackerSdk.Testing\TrackerSdk.Testing.csproj" />
   </ItemGroup>
 
   <!-- Every replay corpus this suite drives: Fixtures/engine-smoke for the scan-loop tests, and

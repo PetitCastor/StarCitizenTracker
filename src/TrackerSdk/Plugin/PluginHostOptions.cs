@@ -85,4 +85,15 @@ public sealed class PluginHostOptions
     /// cancellation, not this, is what ends the wait.
     /// </summary>
     public TimeSpan EngineWait { get; init; } = TimeSpan.FromDays(1);
+
+    /// <summary>
+    /// Tees every emitted <see cref="TrackerRecord"/> here, in addition to the run's own summary.
+    /// Null — the ordinary case — means only the printed summary counts them.
+    /// </summary>
+    /// <remarks>
+    /// For an embedding host that needs the records themselves rather than a printed tally — the
+    /// replay harness, primarily, which hands them back as part of its result to a test that asserts
+    /// on what was captured rather than on the summary line.
+    /// </remarks>
+    public Action<TrackerRecord>? RecordSink { get; init; }
 }
