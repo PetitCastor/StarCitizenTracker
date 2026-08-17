@@ -33,4 +33,10 @@
     <ProjectReference Include="..\..\src\TrackerSdk.Testing\TrackerSdk.Testing.csproj" />
   </ItemGroup>
 
+  <!-- The monolith's replay corpora, shared with CaptureEngine.Tests's own engine-smoke fixtures.
+       Copied next to the test assembly so ReplayParityTests's relative paths resolve at run time. -->
+  <ItemGroup>
+    <None Include="..\fixtures\corpus\**\*.png" Link="Fixtures\Replay\%(RecursiveDir)%(FileName)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

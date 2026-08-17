@@ -7,15 +7,22 @@ using Xunit.Abstractions;
 namespace CaptureEngine.Tests;
 
 /// <summary>
-/// <see cref="ReplayHarness"/> against a real, separately spawned <c>CaptureEngine.exe</c> — the
-/// exact mechanism a plugin's own CI uses, as opposed to <see cref="ReplayParityTests"/> and
-/// <see cref="PluginHostIntegrationTests"/>, which host the engine in-proc.
+/// A spawned engine is a process-wide resource (a named pipe, a Windows OCR engine instance), so
+/// running two of these at once would have them competing for both while claiming to measure a
+/// deterministic replay. The plugin suites' own replay-parity tests (moved out in TASK-13) define
+/// an identically-named collection in their own assembly for the same reason — xunit collections
+/// are per-assembly, so the two never actually contend with each other.
 /// </summary>
-/// <remarks>
-/// Shares <see cref="ReplayParityCollection"/> with the other engine-hosting suites: a spawned
-/// engine still binds the same kind of OS resources (a named pipe, a Windows OCR engine instance)
-/// those tests compete for, just from a second process instead of a second in-proc host.
-/// </remarks>
+[CollectionDefinition("ReplayParity", DisableParallelization = true)]
+public class ReplayParityCollection;
+
+/// <summary>
+/// <see cref="ReplayHarness"/> against a real, separately spawned <c>CaptureEngine.exe</c> — the
+/// exact mechanism a plugin's own CI uses, as opposed to <see cref="PluginHostIntegrationTests"/>,
+/// which hosts the engine in-proc. This is also the engine suite's one thin replay-harness smoke
+/// (<c>NullPlugin</c> + a minimal corpus): proves the engine side of the harness without any
+/// plugin logic, now that the full replay-parity suites live with their plugins.
+/// </summary>
 [Collection("ReplayParity")]
 [Trait("Category", "Integration")]
 public class ReplayHarnessTests(ITestOutputHelper output)
