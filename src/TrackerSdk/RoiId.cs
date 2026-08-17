@@ -20,7 +20,25 @@ namespace TrackerSdk;
 /// <param name="Value">The raw id, as it travels the wire.</param>
 public readonly record struct RoiId(string Value)
 {
+    /// <summary>The raw id, as it travels the wire; never null once a constructor has run.</summary>
+    public string Value { get; } = Value ?? string.Empty;
+
     public static implicit operator RoiId(string value) => new(value);
+
+    /// <summary>
+    /// Ordinal, and null-tolerant: <c>default(RoiId)</c> never runs a constructor, so its
+    /// <see cref="Value"/> stays null however hard the constructor normalises.
+    /// </summary>
+    /// <remarks>
+    /// Comparing through <see cref="ToString"/> is what makes <c>default(RoiId)</c> equal to
+    /// <c>new RoiId("")</c>. The generated equality compares the backing fields, so it would call
+    /// those two different while <see cref="ToString"/> prints both as <c>""</c> — a dictionary miss
+    /// whose log line reads as an innocuous blank id, exactly the silent mismatch this type exists
+    /// to prevent.
+    /// </remarks>
+    public bool Equals(RoiId other) => string.Equals(ToString(), other.ToString(), StringComparison.Ordinal);
+
+    public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(ToString());
 
     /// <summary>The raw id, so interpolation and logging read as the plain string they used to.</summary>
     /// <remarks>
