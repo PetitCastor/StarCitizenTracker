@@ -24,7 +24,7 @@ public class ReplayParityCollection;
 /// </summary>
 /// <remarks>
 /// Everything runs in ONE process: engine host on a private pipe with a ReplayFrameSource, the SDK
-/// over that pipe, and RefineryLogic driven by RefineryRunner — the same runner Program uses, so
+/// over that pipe, and RefineryPlugin driven by TrackerPluginHost — the same host Program uses, so
 /// the tests cover the feeding code too, not just the parser. Real Windows OCR, so this is tagged
 /// Integration exactly as the monolith's replay tests are.
 /// </remarks>
@@ -45,7 +45,7 @@ public class ReplayParityTests(ITestOutputHelper output)
     [Fact]
     public async Task RefineryConfirm_corpus_produces_baseline_ledger()
     {
-        var (ledger, _) = await RunCorpusAsync("refinery-confirm");
+        var ledger = await RunCorpusAsync("refinery-confirm");
 
         // Baseline: RefineryTrackerReplayTests.FullConfirmSequence_ProducesOneCollectedOrder.
         Verify(ledger, () =>
@@ -59,7 +59,7 @@ public class ReplayParityTests(ITestOutputHelper output)
     [Fact]
     public async Task RefineryIceRename_corpus_produces_baseline_ledger()
     {
-        var (ledger, _) = await RunCorpusAsync("refinery-ice-rename");
+        var ledger = await RunCorpusAsync("refinery-ice-rename");
 
         // Baseline: RefineryTrackerReplayTests.RawToRefinedRename_MergesIntoOneOrder. The refinery
         // renames the raw input to its refined product between panels (SETUP "ICE (RAW)" ->
@@ -84,7 +84,15 @@ public class ReplayParityTests(ITestOutputHelper output)
     /// ledger it produced. The temp ledger is deleted before returning: what the assertions read is
     /// the in-memory state, which is authoritative either way, and no test may touch a real ledger.
     /// </summary>
-    private async Task<(OrderLedger Ledger, List<TrackerRecord> Records)> RunCorpusAsync(string corpus)
+    /// <remarks>
+    /// Drives the plugin through the public <see cref="TrackerPluginHost.RunAsync"/> surface — the
+    /// same entry point Program uses — rather than reaching into RefineryLogic/RefineryRunner over an
+    /// InternalsVisibleTo grant (killed in TASK-11). The ledger the host's plugin opens is captured
+    /// through <see cref="RefineryPlugin.RefineryPlugin"/>'s test seam. An explicit <c>--ledger</c>
+    /// override (via the plugin's ledger-override closure) points the replay at a file this method can
+    /// delete afterwards.
+    /// </remarks>
+    private async Task<OrderLedger> RunCorpusAsync(string corpus)
     {
         using var cts = new CancellationTokenSource(TestTimeout);
 
@@ -101,8 +109,7 @@ public class ReplayParityTests(ITestOutputHelper output)
         var ledgerDir = Path.Combine(Path.GetTempPath(), $"sc-parity-{Guid.NewGuid():N}");
         var ledgerPath = Path.Combine(ledgerDir, "orders.jsonl");
 
-        var records = new List<TrackerRecord>();
-        var ledger = new OrderLedger(ledgerPath);
+        OrderLedger? captured = null;
 
         try
         {
@@ -124,18 +131,23 @@ public class ReplayParityTests(ITestOutputHelper output)
 
             try
             {
-                ledger.Load();
+                var plugin = new RefineryPlugin.RefineryPlugin(
+                    new RefineryConfig(),
+                    ledgerOverride: () => ledgerPath,
+                    onLedgerOpened: l => captured = l);
 
-                using var client = new CaptureClient(pipeName);
+                // The plugin through its real host — the subscribe/consume/reconnect/summary path is
+                // part of what the split changed and therefore part of what parity has to cover. The
+                // host returns when the engine completes the stream at corpus exhaustion.
+                var options = new PluginHostOptions
+                {
+                    Output = pluginSink,
+                    HandleCancelKeyPress = false,
+                    ShutdownToken = cts.Token,
+                };
+                await TrackerPluginHost.RunAsync(plugin, ["--pipe", pipeName], options);
 
-                // The plugin's own runner, not a hand-rolled loop: the subscribe/consume path is
-                // part of what the split changed and therefore part of what parity has to cover. It
-                // returns when the engine completes the stream at corpus exhaustion.
-                await RefineryRunner.RunAsync(client, pipeName,
-                    _ => new RefineryLogic(records.Add, pluginSink, verbose: false, dumpFrame: null, ledger),
-                    pluginSink, cts.Token);
-
-                // Checked before the assertions so a hang is reported as one. The runner treats a
+                // Checked before the assertions so a hang is reported as one. The host treats a
                 // cancelled stream as a stream that ended, so a fired budget otherwise reaches the
                 // baselines as an empty ledger — a timeout wearing a parity failure's clothes.
                 Assert.False(cts.IsCancellationRequested,
@@ -161,16 +173,19 @@ public class ReplayParityTests(ITestOutputHelper output)
                 }
             }
 
-            output.WriteLine($"{corpus}: {frameCount} frame(s) replayed, " +
-                $"{ledger.All.Count} order(s), {records.Count} capture(s)");
+            // The host opens the ledger on its first connect; a corpus that never let it connect is a
+            // failure of the harness, not a parity result.
+            Assert.True(captured is not null, $"{corpus}: the plugin never opened a ledger (never connected)");
+
+            output.WriteLine($"{corpus}: {frameCount} frame(s) replayed, {captured.All.Count} order(s)");
 
             // Non-empty first, as ScanLoopTests does: Directory.Exists is satisfied by an empty
             // directory, so a corpus that failed to copy — or a wholesale ROI failure — would reach
             // the baselines as the same empty ledger a genuine parity break produces.
             Assert.NotEqual(0, frameCount);
-            Assert.NotEmpty(records);
+            Assert.NotEmpty(captured.All);
 
-            return (ledger, records);
+            return captured;
         }
         finally
         {

@@ -1,7 +1,8 @@
 using RefineryPlugin.Orders;
-using Xunit;
-using static RefineryPlugin.Tests.TickFactory;
 using TrackerSdk;
+using TrackerSdk.Testing;
+using Xunit;
+using static RefineryPlugin.Tests.RefineryTicks;
 
 namespace RefineryPlugin.Tests;
 
@@ -30,8 +31,7 @@ public class RefineryErroredRoiTests : IDisposable
     private const string YieldTotal = "YIELD 1850";
 
     private readonly DirectoryInfo _dir = Directory.CreateTempSubdirectory("refinery-plugin-error-tests");
-    private readonly ConsoleSink _sink = new();
-    private readonly List<TrackerRecord> _records = [];
+    private readonly FakePluginServices _services = new();
     private readonly OrderLedger _ledger;
     private readonly RefineryLogic _logic;
 
@@ -39,12 +39,11 @@ public class RefineryErroredRoiTests : IDisposable
     {
         _ledger = new OrderLedger(Path.Combine(_dir.FullName, "orders.jsonl"));
         _ledger.Load();
-        _logic = new RefineryLogic(_records.Add, _sink, verbose: false, dumpFrame: null, _ledger);
+        _logic = new RefineryLogic(_services, _ledger);
     }
 
     public void Dispose()
     {
-        _sink.Dispose();
         _dir.Delete(recursive: true);
         GC.SuppressFinalize(this);
     }
@@ -100,7 +99,9 @@ public class RefineryErroredRoiTests : IDisposable
     {
         await SetupTick();
 
-        for (var i = 0; i < SetupDepartureDebouncer.ConfirmTicks; i++)
+        // Errored panel ticks abort before the debouncer even sees them, so the SETUP session's
+        // anchor never moves — three of them cannot count as a departure.
+        for (var i = 0; i < 3; i++)
             await SetupTick(Rois.Panel.Id);
 
         // The rows survived: the submit that follows a real departure still carries them.

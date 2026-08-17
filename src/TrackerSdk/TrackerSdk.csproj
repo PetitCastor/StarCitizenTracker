@@ -28,15 +28,11 @@
          also where the host's decisions actually live. -->
     <InternalsVisibleTo Include="TrackerSdk.Tests" />
     <InternalsVisibleTo Include="CaptureEngine.Tests" />
-    <!-- Plugin suites build ticks from the wire type the engine would have sent, which is what
-         TickData.From maps: the alternative is a public factory that exists only for tests and
-         that a plugin could then call in production code. Dies in TASK-10/11 once both plugins'
-         suites move onto TrackerSdk.Testing, the grant that survives a repo split. MissionPlugin
-         moved in TASK-10; RefineryPlugin.Tests remains until TASK-11. -->
-    <InternalsVisibleTo Include="RefineryPlugin.Tests" />
     <!-- TrackerSdk.Testing ships in this repo alongside the SDK, so unlike a plugin's own test
          project it still has InternalsVisibleTo once the engine/plugins split into separate repos
-         (TASK-22/23) — the reason it, not a plugin-test grant, is the one meant to last. -->
+         (TASK-22/23) — the reason it, not a plugin-test grant, is the one meant to last. Both
+         plugin suites now build ticks through its public TickDataBuilder (MissionPlugin in TASK-10,
+         RefineryPlugin in TASK-11), so no plugin-test grant remains here. -->
     <InternalsVisibleTo Include="TrackerSdk.Testing" />
   </ItemGroup>
 

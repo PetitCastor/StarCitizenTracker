@@ -29,6 +29,15 @@ internal readonly record struct SetupTransition(bool OpenedFresh, PanelState? De
 /// still counts) — only that none of them is SETUP — because once the panel is genuinely away from
 /// SETUP, which exact non-SETUP state it settles on is irrelevant to "did SETUP really close."
 /// </remarks>
+/// <remarks>
+/// A count of confirming FRAMES, deliberately not a wall-clock window. TASK-11 sketched a
+/// <c>TimeSpan</c> window (three scan intervals) to decouple the rule from cadence, but replay runs
+/// the scan loop flat out — <see cref="ScanLoop"/> stamps every tick with real <c>UtcNow</c> and does
+/// not sleep <c>ScanInterval</c> between frames — so a wall-clock window turns "N confirming frames"
+/// into "however many frames elapse ≥1.5 s of real OCR time", which depends on machine speed and
+/// makes replay non-deterministic (a fast box confirms in too few frames, or never within the corpus).
+/// A frame count is invariant across live and replay, which is the property the debounce needs.
+/// </remarks>
 internal sealed class SetupDepartureDebouncer
 {
     /// <summary>Consecutive non-SETUP ticks required before a SETUP departure is trusted. Same

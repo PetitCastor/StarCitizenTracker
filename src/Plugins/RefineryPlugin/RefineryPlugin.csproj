@@ -20,11 +20,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Own-test grant only, same as MissionPlugin: this survives the repo split because the test
+         project ships beside its plugin. The former CaptureEngine.Tests grant is gone — the
+         replay-parity tests now drive this plugin through the public TrackerPluginHost surface
+         (TASK-11), so they no longer need its internals. -->
     <InternalsVisibleTo Include="RefineryPlugin.Tests" />
-    <!-- The replay-parity tests (ENGINE-SPLIT TASK-7) run the engine, the SDK and this plugin in
-         one process, so they live with the engine's suite — the only project that can own both
-         ends of the pipe — and drive RefineryRunner and the Rois set directly. -->
-    <InternalsVisibleTo Include="CaptureEngine.Tests" />
   </ItemGroup>
 
 </Project>
