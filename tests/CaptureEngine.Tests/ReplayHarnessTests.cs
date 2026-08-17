@@ -9,9 +9,10 @@ namespace CaptureEngine.Tests;
 /// <summary>
 /// A spawned engine is a process-wide resource (a named pipe, a Windows OCR engine instance), so
 /// running two of these at once would have them competing for both while claiming to measure a
-/// deterministic replay. The plugin suites' own replay-parity tests (moved out in TASK-13) define
-/// an identically-named collection in their own assembly for the same reason — xunit collections
-/// are per-assembly, so the two never actually contend with each other.
+/// deterministic replay. RefineryPlugin.Tests's own replay-parity suite (moved out in TASK-13)
+/// defines an identically-named collection in its own assembly for the same reason — xunit
+/// collections are per-assembly, so the two definitions don't collide, and equally neither
+/// serializes against the other (nothing here relies on cross-assembly ordering).
 /// </summary>
 [CollectionDefinition("ReplayParity", DisableParallelization = true)]
 public class ReplayParityCollection;
@@ -29,9 +30,6 @@ public class ReplayHarnessTests(ITestOutputHelper output)
 {
     private static readonly TimeSpan TestTimeout = TimeSpan.FromMinutes(2);
 
-    private static string AbsoluteFixture(string relative) => Path.GetFullPath(
-        Path.Combine(AppContext.BaseDirectory, relative));
-
     [Fact]
     public async Task SmokeCorpus_DispatchesEveryTickAndEndsWithReplayCompleted()
     {
@@ -42,7 +40,7 @@ public class ReplayHarnessTests(ITestOutputHelper output)
         var result = await ReplayHarness.RunAsync(new ReplayOptions
         {
             EnginePath = enginePath,
-            CorpusDir = AbsoluteFixture(EngineTestFixtures.ReplayDir),
+            CorpusDir = ReplayCorpus.Resolve(EngineTestFixtures.ReplayDir),
             Plugin = plugin,
             Timeout = TestTimeout,
         });

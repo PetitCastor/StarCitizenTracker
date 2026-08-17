@@ -35,16 +35,6 @@ public class ReplayParityTests(ITestOutputHelper output)
     /// <summary>The monolith's corpora, linked into this assembly's output by the csproj.</summary>
     private const string FixturesRoot = "Fixtures/Replay";
 
-    /// <summary>
-    /// A hang bound, not a performance budget: real OCR over these corpora measures 1-2s each, so
-    /// anything near this means something is stuck rather than slow. Deliberately far above the
-    /// measurement to stay quiet on a loaded CI box.
-    /// </summary>
-    private static readonly TimeSpan TestTimeout = TimeSpan.FromMinutes(5);
-
-    private static string AbsoluteFixture(string relative) => Path.GetFullPath(
-        Path.Combine(AppContext.BaseDirectory, relative));
-
     [Fact]
     public async Task RefineryConfirm_corpus_produces_baseline_ledger()
     {
@@ -98,7 +88,7 @@ public class ReplayParityTests(ITestOutputHelper output)
     /// </remarks>
     private async Task<OrderLedger> RunCorpusAsync(string corpus)
     {
-        var corpusDir = AbsoluteFixture(Path.Combine(FixturesRoot, corpus));
+        var corpusDir = ReplayCorpus.Resolve(Path.Combine(FixturesRoot, corpus));
         Assert.True(Directory.Exists(corpusDir), $"corpus not copied to the test output: {corpusDir}");
 
         var frameCount = Directory.EnumerateFiles(corpusDir, "*.png").Count();
@@ -119,16 +109,18 @@ public class ReplayParityTests(ITestOutputHelper output)
                 ledgerOverride: () => ledgerPath,
                 onLedgerOpened: l => captured = l);
 
+            // Timeout left at ReplayOptions' own default (5 min) — real OCR over these corpora
+            // measures 1-2s each, so anything near it means something is stuck rather than slow.
             var result = await ReplayHarness.RunAsync(new ReplayOptions
             {
                 EnginePath = EngineLocator.Resolve(),
                 CorpusDir = corpusDir,
                 Plugin = plugin,
-                Timeout = TestTimeout,
             });
 
             output.WriteLine($"{corpus}: {frameCount} frame(s) replayed, exit {result.ExitCode}, " +
-                $"reason {result.Reason}, {captured?.All.Count ?? 0} order(s)");
+                $"reason {result.Reason}, {result.Records.Count} record(s), " +
+                $"{captured?.All.Count ?? 0} order(s)");
 
             Assert.Equal(0, result.ExitCode);
             Assert.Equal(StreamEndReason.ReplayCompleted, result.Reason);
@@ -137,6 +129,10 @@ public class ReplayParityTests(ITestOutputHelper output)
             // a failure of the harness, not a parity result.
             Assert.True(captured is not null, $"{corpus}: the plugin never opened a ledger (never connected)");
             Assert.NotEmpty(captured.All);
+
+            // A second parity surface pinned for free: the plugin's own tee to services.Emit, kept
+            // in step with the ledger it built from the same run.
+            Assert.NotEmpty(result.Records);
 
             return captured;
         }

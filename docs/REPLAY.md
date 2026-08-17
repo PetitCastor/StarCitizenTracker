@@ -17,8 +17,9 @@ and the engine's own thin smoke in `CaptureEngine.Tests/ReplayHarnessTests.cs`).
 - The shared fixtures live under `tests/fixtures/corpus/<name>/` and are linked into whichever
   test project needs them (`<None Include="..\fixtures\corpus\**\*.png" Link="Fixtures\Replay\..." />`)
   — see `RefineryPlugin.Tests.csproj` and `MissionPlugin.Tests.csproj` for the pattern. The
-  engine's own `Fixtures/engine-smoke` corpus (`CaptureEngine.Tests`) stays local to that project;
-  it exists only to smoke-test the harness itself, not any plugin's parsing.
+  engine's own `Fixtures/engine-smoke` corpus (`CaptureEngine.Tests`) stays local to that project —
+  it is the corpus essentially the whole engine-side suite drives (scan loop, gRPC host, SDK
+  client, handshake, plugin host, and the `ReplayHarness` smoke), not just the harness.
 
 ## Capturing a corpus in-game
 

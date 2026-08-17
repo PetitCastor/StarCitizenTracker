@@ -40,8 +40,9 @@
     <ProjectReference Include="..\..\src\TrackerSdk.Testing\TrackerSdk.Testing.csproj" />
   </ItemGroup>
 
-  <!-- The one corpus this suite still drives directly: Fixtures/engine-smoke, for the scan-loop
-       tests and the thin ReplayHarness smoke. Copied next to the test assembly so relative paths
+  <!-- The one corpus this suite still drives directly: Fixtures/engine-smoke, the corpus behind
+       essentially the whole engine-side suite (scan loop, gRPC host, SDK client, handshake, plugin
+       host, and the thin ReplayHarness smoke). Copied next to the test assembly so relative paths
        resolve at run time. -->
   <ItemGroup>
     <None Include="Fixtures\**\*.png" CopyToOutputDirectory="PreserveNewest" />
