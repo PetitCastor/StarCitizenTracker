@@ -6,54 +6,6 @@ using TrackerSdk;
 namespace RefineryPlugin;
 
 /// <summary>
-/// The regions this plugin subscribes, in reference space. Static for the life of the process:
-/// per-tick atomicity means every decision is made from one tick, so the set a tick can answer
-/// must be complete before the tick arrives — there is no mid-tick round-trip to add a ROI.
-/// </summary>
-/// <remarks>
-/// Deliberate design change against the monolith: RefineryTracker gated its reads to save in-process
-/// OCR — the Confirm-Delivery modal was only read when a panel was live (<c>needModal</c>), and
-/// station/process/footer only on every 4th tick. Engine-side those reads cost about 1.3 ms each at
-/// 2 Hz, which is not worth a gate, so the plugin subscribes the full set on every tick and the
-/// header cadence is gone. Per-tick semantics are unchanged: everything still comes from one frame.
-/// </remarks>
-internal static class Rois
-{
-    private const double HeaderScale = 3.0;
-    private const double ListScale = 2.5;
-    private const double FooterScale = 3.0;
-
-    // Calibrated against the 2560x1440 corpus (Fixtures/Replay/refinery-confirm) in reference
-    // coordinates; the engine maps them to the actual frame size at scan time.
-    public static readonly RoiSubscription Panel =                                    // SETUP | PROCESSING | COMPLETED
-        new("panel", new RoiRect(900, 265, 250, 55), HeaderScale, RoiKind.Text);
-    public static readonly RoiSubscription Station =                                  // "STANTON GATEWAY"
-        new("station", new RoiRect(320, 190, 340, 55), HeaderScale, RoiKind.Text);
-    public static readonly RoiSubscription Process =                                  // "Pyrometric Chromalysis"
-        new("process", new RoiRect(650, 515, 440, 48), HeaderScale, RoiKind.Text);
-    public static readonly RoiSubscription SetupList =                                // SETUP list: NAME QUALITY QTY YIELD
-        new("setupList", new RoiRect(650, 640, 400, 270), ListScale, RoiKind.Detailed);
-    public static readonly RoiSubscription Footer =                                   // TOTAL COST / PROCESSING TIME
-        new("footer", new RoiRect(650, 950, 440, 120), FooterScale, RoiKind.Text);
-    public static readonly RoiSubscription Toggles =                                  // SETUP refine toggles
-        new("toggles", new RoiRect(1055, 645, 40, 250), 1.0, RoiKind.Pixels);
-    public static readonly RoiSubscription YieldList =                                // PROCESSING/COMPLETED: NAME QUALITY YIELD ...
-        new("yieldList", new RoiRect(650, 395, 470, 210), ListScale, RoiKind.Detailed);
-    public static readonly RoiSubscription YieldTotal =                               // "YIELD 303 cSCU" checksum line
-        new("yieldTotal", new RoiRect(650, 805, 480, 48), HeaderScale, RoiKind.Text);
-    public static readonly RoiSubscription Modal =                                    // Confirm Delivery modal
-        new("modal", new RoiRect(1052, 582, 625, 225), HeaderScale, RoiKind.Text);
-
-    /// <summary>Reference-space sample column inside the toggle pill.</summary>
-    public const int ToggleColumnX = 1073;
-
-    // A field, not an expression-bodied property: the set never changes, and `=> [Panel, ...]`
-    // would build a fresh array on every read.
-    public static readonly IReadOnlyList<RoiSubscription> All =
-        [Panel, Station, Process, SetupList, Footer, Toggles, YieldList, YieldTotal, Modal];
-}
-
-/// <summary>
 /// Observes a refinery work order across its three panels and merges each read into the persistent
 /// <see cref="OrderLedger"/>. While SETUP is open it scroll-stitches the materials list (rows keyed
 /// by name+quality, last-seen wins). The middle-column state header is classified every tick into a
@@ -100,37 +52,24 @@ public sealed class RefineryLogic
             => Rows.Values.OrderBy(v => v.Order).Select(v => v.Mat).ToList();
     }
 
-    private readonly Action<TrackerRecord> _emit;
-    private readonly ConsoleSink _sink;
-    private readonly bool _verbose;
+    private readonly IPluginServices _services;
     private readonly OrderLedger _ledger;
 
-    // Non-null: ask the engine to dump the completed-panel PNG per emitted order and write the
-    // rendered order beside it. A func rather than the client itself so the logic stays testable
-    // without a pipe.
-    private readonly Func<RoiRect?, string, Task<string?>>? _dumpFrame;
-
     private readonly PanelStateMachine _machine = new();
-    private readonly SetupDepartureDebouncer _setupDebouncer = new();
+    private readonly SetupDepartureDebouncer _setupDebouncer;
     private Accumulator _acc = new();
     private WorkOrder? _lastOrder;      // the order to advance to Collected when the panel closes
     private bool _expectCollect;        // saw a completed/processing panel → watch for the modal even after the header is gone
     private bool _observedThisCycle;    // the current completed/processing cycle actually produced a yield read
 
-    // ROI ids already reported as unreadable, cleared per id as soon as it reads again. A ROI that
-    // fails for a structural reason — a toggle strip that scales past the wire's pixel budget on a
-    // very large frame, say — fails on every tick, and a 2 Hz repeat would bury the console; silence
-    // would be worse, since the symptom downstream is orders quietly filed with "?" fields.
-    private readonly HashSet<RoiId> _reportedFailures = [];
-
-    public RefineryLogic(Action<TrackerRecord> emit, ConsoleSink sink, bool verbose,
-        Func<RoiRect?, string, Task<string?>>? dumpFrame, OrderLedger ledger)
+    /// <param name="setupDepartureWindow">How long the panel must read non-SETUP before a departure is
+    /// trusted — the plugin passes three engine scans, so the monolith's three-tick rule holds at any
+    /// cadence. See <see cref="SetupDepartureDebouncer"/>.</param>
+    public RefineryLogic(IPluginServices services, OrderLedger ledger, TimeSpan setupDepartureWindow)
     {
-        _emit = emit;
-        _sink = sink;
-        _verbose = verbose;
-        _dumpFrame = dumpFrame;
+        _services = services;
         _ledger = ledger;
+        _setupDebouncer = new SetupDepartureDebouncer(setupDepartureWindow);
     }
 
     // Refine toggle: orange/red fill when ON (R high, B low), white knob when OFF (R≈B), dark when
@@ -152,8 +91,9 @@ public sealed class RefineryLogic
         // fabricates a Collected order, and an errored modal looks like the confirm being dismissed
         // and throws away a real delivery. So the abort is reconstructed here. Skipping costs one
         // tick; the next frame is 500 ms away and every reader is idempotent.
-        // Both are evaluated, never short-circuited: RoiFailed also clears a ROI's reported-once
-        // latch when it reads cleanly again, and a panel failure must not hide the modal's recovery.
+        // Once-per-change failure reporting is the host's now (TickDispatcher's RoiFailureLatch), so
+        // RoiFailed here is a pure per-tick predicate — the two checks stay separate statements, not a
+        // short-circuit, only to keep the panel-and-modal reading symmetric.
         var panelFailed = RoiFailed(tick, Rois.Panel.Id);
         var modalFailed = RoiFailed(tick, Rois.Modal.Id);
         if (panelFailed || modalFailed)
@@ -167,7 +107,7 @@ public sealed class RefineryLogic
         // SetupDepartureDebouncer for the confirm-N-ticks-before-acting rule. This only gates the
         // accumulator lifecycle — panel *content* below is still read every tick from the raw
         // classification, so a genuinely-transitioned panel is never read late.
-        var transition = _setupDebouncer.Observe(state);
+        var transition = _setupDebouncer.Observe(state, tick.Timestamp);
         if (transition.OpenedFresh)
         {
             // A fresh SETUP starts a new order — reset the stitching accumulator. _lastOrder belongs
@@ -198,7 +138,7 @@ public sealed class RefineryLogic
             var submit = _ledger.Observe(BuildSetupObservation());
             _lastOrder = submit.Merged;
             if (submit.Changed)
-                _emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(submit.Merged)));
+                _services.Emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(submit.Merged)));
         }
 
         var step = _machine.Step(new PanelObservation(state, modalVisible));
@@ -340,12 +280,12 @@ public sealed class RefineryLogic
         _observedThisCycle = true;
 
         if (completeness == Completeness.Partial && result.Changed)
-            _sink.WriteLine($"refinery: order at {station} partial — {materials.Count} rows, {sum}/" +
+            _services.Log($"refinery: order at {station} partial — {materials.Count} rows, {sum}/" +
                 $"{(total?.ToString() ?? "?")} cSCU. Scroll the list to complete.");
 
         if (result.Changed && orderState == OrderState.Ready)
         {
-            _emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(result.Merged)));
+            _services.Emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(result.Merged)));
             await SaveDebugAsync(ct);
         }
     }
@@ -370,7 +310,7 @@ public sealed class RefineryLogic
         _lastOrder = result.Merged;
 
         if (result.Changed)
-            _emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(result.Merged)));
+            _services.Emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(result.Merged)));
     }
 
     /// <summary>Hotkey escape hatch. Synchronous where the monolith's was not: everything it reads is
@@ -383,7 +323,7 @@ public sealed class RefineryLogic
         {
             var result = _ledger.Observe(BuildSetupObservation());
             _lastOrder = result.Merged;
-            _emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Manual, RenderOrder(result.Merged)));
+            _services.Emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Manual, RenderOrder(result.Merged)));
             return;
         }
 
@@ -391,7 +331,7 @@ public sealed class RefineryLogic
         // subscription still carries the plain text, so the setup list answers Text() too.
         var list = tick.Text(Rois.SetupList.Id);
         var footer = tick.Text(Rois.Footer.Id);
-        _emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Manual,
+        _services.Emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Manual,
             $"[raw list ROI]\r\n{list}\r\n[raw footer ROI]\r\n{footer}"));
     }
 
@@ -405,26 +345,14 @@ public sealed class RefineryLogic
         => index < row.Numbers.Count ? row.Numbers[index] : null;
 
     /// <summary>
-    /// Whether the engine flagged this ROI as failed on this tick, reporting it the first time and
-    /// staying quiet until it reads again. An errored ROI is not a blank one: <c>Text()</c> answers
-    /// empty either way, and every caller here has to treat "could not read" as "do nothing", never
-    /// as an observation.
+    /// Whether the engine flagged this ROI as failed on this tick. An errored ROI is not a blank one:
+    /// <c>Text()</c> answers empty either way, and every caller here has to treat "could not read" as
+    /// "do nothing", never as an observation. Reporting the failure — once per change, not per tick —
+    /// is the host's job now (<see cref="TrackerSdk.RoiErrorPolicy.SkipErrored"/>'s latch), so this is
+    /// a pure predicate.
     /// </summary>
-    private bool RoiFailed(TickData tick, RoiId roiId)
-    {
-        var error = tick.ErrorMessage(roiId);
-        if (error is null)
-        {
-            _reportedFailures.Remove(roiId);
-            return false;
-        }
-
-        if (_reportedFailures.Add(roiId))
-            _sink.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] [{Name}] roi '{roiId}' unreadable: {error} " +
-                "— skipping reads that depend on it until it recovers");
-
-        return true;
-    }
+    private static bool RoiFailed(TickData tick, RoiId roiId)
+        => tick.ErrorMessage(roiId) is not null;
 
     private static bool IsModalVisible(string text)
         => text.Contains("CONFIRM", StringComparison.OrdinalIgnoreCase)
@@ -432,12 +360,10 @@ public sealed class RefineryLogic
 
     private async Task SaveDebugAsync(CancellationToken ct)
     {
-        if (_dumpFrame is null)
-            return;
-
         // The engine writes the PNG and hands back where it put it; null means it has not scanned a
-        // frame yet, in which case there is nothing to sit the rendered order beside.
-        var pngPath = await _dumpFrame(Rois.YieldList.Rect, "refinery_completed");
+        // frame yet, OR that debug dumps are switched off (the ordinary case) — either way there is
+        // nothing to sit the rendered order beside.
+        var pngPath = await _services.DumpFrameAsync(Rois.YieldList.Rect, "refinery_completed", ct);
         if (pngPath is not null && _lastOrder is not null)
             await File.WriteAllTextAsync(Path.ChangeExtension(pngPath, ".txt"), RenderOrder(_lastOrder), ct);
     }
@@ -455,9 +381,8 @@ public sealed class RefineryLogic
         return sb.ToString().TrimEnd();
     }
 
+    // Gated inside the host's IPluginServices: LogVerbose is a no-op unless the run was started with
+    // --verbose, so this may be called on every tick.
     private void Log(string message)
-    {
-        if (_verbose)
-            _sink.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] [{Name}] {message}");
-    }
+        => _services.LogVerbose($"[{DateTime.Now:HH:mm:ss.fff}] [{Name}] {message}");
 }

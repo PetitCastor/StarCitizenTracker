@@ -1,7 +1,8 @@
 using RefineryPlugin.Orders;
-using Xunit;
-using static RefineryPlugin.Tests.TickFactory;
 using TrackerSdk;
+using TrackerSdk.Testing;
+using Xunit;
+using static RefineryPlugin.Tests.RefineryTicks;
 
 namespace RefineryPlugin.Tests;
 
@@ -30,31 +31,38 @@ public class RefineryErroredRoiTests : IDisposable
     private const string YieldTotal = "YIELD 1850";
 
     private readonly DirectoryInfo _dir = Directory.CreateTempSubdirectory("refinery-plugin-error-tests");
-    private readonly ConsoleSink _sink = new();
-    private readonly List<TrackerRecord> _records = [];
+    private readonly FakePluginServices _services = new();
     private readonly OrderLedger _ledger;
     private readonly RefineryLogic _logic;
+
+    private static readonly TimeSpan Scan = EngineDefaults.DefaultScanInterval;
+    private DateTimeOffset _now = new(2026, 8, 17, 12, 0, 0, TimeSpan.Zero);
+    private DateTimeOffset Next()
+    {
+        var t = _now;
+        _now = _now.Add(Scan);
+        return t;
+    }
 
     public RefineryErroredRoiTests()
     {
         _ledger = new OrderLedger(Path.Combine(_dir.FullName, "orders.jsonl"));
         _ledger.Load();
-        _logic = new RefineryLogic(_records.Add, _sink, verbose: false, dumpFrame: null, _ledger);
+        _logic = new RefineryLogic(_services, _ledger, 3 * _services.Engine.ScanInterval);
     }
 
     public void Dispose()
     {
-        _sink.Dispose();
         _dir.Delete(recursive: true);
         GC.SuppressFinalize(this);
     }
 
-    private Task SetupTick(params RoiId[] errored) => _logic.OnTickAsync(Tick("SETUP",
+    private Task SetupTick(params RoiId[] errored) => _logic.OnTickAsync(Tick(Next(), "SETUP",
         station: Station, setupRows: SetupRows, toggle: ToggleOn, erroredRois: errored));
 
     private Task YieldTick(string panel, string modal = "", string total = YieldTotal,
         params RoiId[] errored)
-        => _logic.OnTickAsync(Tick(panel, modal: modal, station: Station, yieldTotal: total,
+        => _logic.OnTickAsync(Tick(Next(), panel, modal: modal, station: Station, yieldTotal: total,
             yieldRows: YieldRows, erroredRois: errored));
 
     /// <summary>
@@ -85,7 +93,7 @@ public class RefineryErroredRoiTests : IDisposable
         await YieldTick("COMPLETED");
         await YieldTick("COMPLETED", modal: "CONFIRM DELIVERY");
         await YieldTick("COMPLETED", modal: "CONFIRM DELIVERY", errored: [Rois.Modal.Id]);
-        await _logic.OnTickAsync(Tick(""));
+        await _logic.OnTickAsync(Tick(Next(), ""));
 
         Assert.Equal(OrderState.Collected, Assert.Single(_ledger.All).State);
     }
@@ -100,7 +108,9 @@ public class RefineryErroredRoiTests : IDisposable
     {
         await SetupTick();
 
-        for (var i = 0; i < SetupDepartureDebouncer.ConfirmTicks; i++)
+        // Errored panel ticks abort before the debouncer even sees them, so the SETUP session's
+        // anchor never moves — three of them cannot count as a departure.
+        for (var i = 0; i < 3; i++)
             await SetupTick(Rois.Panel.Id);
 
         // The rows survived: the submit that follows a real departure still carries them.
@@ -140,14 +150,14 @@ public class RefineryErroredRoiTests : IDisposable
         // Order A: observed, delivered, collected.
         await YieldTick("COMPLETED");
         await YieldTick("COMPLETED", modal: "CONFIRM DELIVERY");
-        await _logic.OnTickAsync(Tick(""));
+        await _logic.OnTickAsync(Tick(Next(), ""));
         var orderA = Assert.Single(_ledger.All);
         Assert.Equal(OrderState.Collected, orderA.State);
 
         // Order B: its rows error on every tick, so nothing about it ever reaches the ledger.
         await YieldTick("COMPLETED", errored: [Rois.YieldList.Id]);
         await YieldTick("COMPLETED", modal: "CONFIRM DELIVERY", errored: [Rois.YieldList.Id]);
-        await _logic.OnTickAsync(Tick(""));
+        await _logic.OnTickAsync(Tick(Next(), ""));
 
         // Still just order A, and its record is untouched — no second collect was fabricated.
         var after = Assert.Single(_ledger.All);
@@ -167,7 +177,7 @@ public class RefineryErroredRoiTests : IDisposable
 
         // The hotkey forces whatever is accumulated into the ledger — it is the rows from the tick
         // that read cleanly, so nothing was lost and nothing blank was stitched over them.
-        await _logic.OnTickAsync(Tick("SETUP", station: Station, setupRows: SetupRows,
+        await _logic.OnTickAsync(Tick(Next(), "SETUP", station: Station, setupRows: SetupRows,
             toggle: ToggleOn, manual: true));
 
         var order = Assert.Single(_ledger.All);
