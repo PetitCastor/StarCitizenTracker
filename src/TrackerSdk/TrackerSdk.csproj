@@ -9,6 +9,18 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>SCTracker.Sdk</PackageId>
+    <Description>Client SDK for writing Star Citizen Tracker plugins. Implement ITrackerPlugin — a name, a set of screen regions, and what to do with one frame's OCR results — and hand it to TrackerPluginHost, which owns connecting, subscribing, reconnecting, and shutdown.</Description>
+    <PackageTags>star-citizen;screen-capture;ocr;plugin;sdk;grpc</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\CaptureContracts\CaptureContracts.csproj" />
   </ItemGroup>

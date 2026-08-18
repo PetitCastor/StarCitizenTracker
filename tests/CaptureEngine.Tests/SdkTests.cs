@@ -3,6 +3,15 @@ using CaptureContracts.Proto;
 using TrackerSdk;
 using Xunit;
 
+// TreatWarningsAsErrors (Directory.Build.props) turns obsolete-member use into a build failure, and
+// this file uses TickData's obsolete Text/Ocr/Pixels/Error accessors on purpose: they still ship, so
+// their documented behaviour — a failed region and an absent one both reading as "nothing", which is
+// exactly why they are deprecated — still has to be pinned by a test. Migrating these call sites to
+// the Try- forms would not modernise the suite, it would delete the only coverage the obsolete
+// surface has. The pragma and the assertions under it come out together, in the change that removes
+// the members themselves.
+#pragma warning disable CS0618 // Type or member is obsolete
+
 namespace CaptureEngine.Tests;
 
 /// <summary>

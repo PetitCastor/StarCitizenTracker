@@ -8,6 +8,21 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- Package identity. The assembly keeps its own name; only what ships to nuget.org is
+       renamed, so the SCTracker.* prefix groups the three packages without churning every
+       using directive in the repo. Version comes from MinVer (Directory.Build.props). -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>SCTracker.Contracts</PackageId>
+    <Description>Wire contract shared by the Star Citizen Tracker capture engine and its plugins: the gRPC service definition and the ROI, OCR, and pixel types both sides exchange. Usually consumed transitively via SCTracker.Sdk.</Description>
+    <PackageTags>star-citizen;screen-capture;ocr;grpc;protobuf;contracts</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" Version="3.35.1" />
     <PackageReference Include="Grpc.Core.Api" Version="2.83.0" />
