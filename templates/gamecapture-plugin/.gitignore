@@ -1,0 +1,21 @@
+# Build directories
+bin/
+obj/
+TestResults/
+
+# `dotnet pack` output
+*.nupkg
+*.snupkg
+
+# Runtime output
+captures/
+
+# IDE / OS
+.vs/
+.vscode/
+*.user
+.DS_Store
+Thumbs.db
+
+# Local-only config
+*.local.json

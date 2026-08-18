@@ -217,7 +217,7 @@ Members, and what each one is for:
 
 | Member | Required | Notes |
 | --- | --- | --- |
-| `Name` | yes | Client name on the Track stream (what the engine lists in `GetStatus`, and what a user sees when two plugins share an engine) *and* the `CaptureRecord.Tracker` tag on everything emitted. |
+| `Name` | yes | Client name on the Track stream (what the engine lists in `GetStatus`, and what a user sees when two plugins share an engine) *and* the `CaptureRecord.Plugin` tag on everything emitted. |
 | `Rois` | yes | Complete before the first tick; see [§4](#4-rois-space-scale-calibration). |
 | `OnTickAsync` | yes | One scanned frame. Called sequentially — the host never overlaps two ticks — so plugin state needs no locking. Throwing does **not** end the run: the host logs it and delivers the next tick, because one unparseable frame out of thousands is normal. |
 | `ErrorPolicy` | no (`AbortTick`) | See [§5](#5-error-handling). |
@@ -483,7 +483,7 @@ public class ReplayParityTests
         Assert.Equal(StreamEndReason.ReplayCompleted, result.Reason);
 
         var record = Assert.Single(result.Records);
-        Assert.Equal("counter", record.Tracker);
+        Assert.Equal("counter", record.Plugin);
         Assert.Equal(TriggerKind.Auto, record.Trigger);
     }
 }

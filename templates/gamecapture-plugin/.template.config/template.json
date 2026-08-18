@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "PetitCastor",
+  "classifications": ["GameCapture", "Plugin"],
+  "identity": "GameCapture.Plugin.Template",
+  "name": "GameCapture plugin",
+  "description": "A console plugin project wired against the packed GameCapture.Sdk — one ROI, a test project, and a CI stub, ready to calibrate.",
+  "shortName": "gamecapture-plugin",
+  "sourceName": "MyCapturePlugin",
+  "preferNameDirectory": true,
+  "tags": {
+    "language": "C#",
+    "type": "project"
+  },
+  "symbols": {
+    "SdkVersion": { "type": "parameter", "datatype": "string",
+                    "defaultValue": "1.*", "replaces": "SDK_VERSION",
+                    "description": "The GameCapture.Sdk / GameCapture.Contracts / GameCapture.Sdk.Testing package version to reference." }
+  }
+}

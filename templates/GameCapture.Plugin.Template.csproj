@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A template package ships content, not an assembly: TargetFramework is required for the SDK
+       to evaluate at all, but IncludeBuildOutput=false means nothing under it is actually built
+       into the package — only the Content items below are. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- The SDK's default item globs would otherwise compile every .cs file under
+         gamecapture-plugin/** as part of THIS project (it has no exclusion of its own content,
+         by design — the whole point is that the content is untouched template source). This
+         project ships Content only; nothing here is meant to compile. -->
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <PackageType>Template</PackageType>
+    <PackageId>GameCapture.Plugin.Template</PackageId>
+    <Description>dotnet new template for a GameCapture plugin — a console project wired against the packed GameCapture.Sdk, ready to calibrate ROIs and build.</Description>
+    <PackageTags>star-citizen;screen-capture;ocr;plugin;template;dotnet-new</PackageTags>
+    <!-- Overrides Directory.Build.props' repo-wide default: this is one of the four packages that
+         actually ships (see 00-OVERVIEW.md). -->
+    <IsPackable>true</IsPackable>
+    <IncludeContentInPack>true</IncludeContentInPack>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <!-- Expected and harmless for a content-only package: NuGet warns that the net10.0 dependency
+         group in the nuspec has no matching lib/ref output, which is exactly what
+         IncludeBuildOutput=false intends. -->
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <!-- Overrides Directory.Build.props' repo-wide IncludeSymbols=true: there is no build output
+         here (IncludeBuildOutput=false above), so there are no symbols to ship, and the default
+         would otherwise fail packing a .snupkg with "no dependencies nor content" (NU5017). -->
+    <IncludeSymbols>false</IncludeSymbols>
+    <ContentTargetFolders>content</ContentTargetFolders>
+    <!-- Keeps .gitignore/.github in the pack: NuGet's default excludes drop dotfiles and anything
+         under a folder starting with '.', which would silently strip both from every instantiated
+         project. -->
+    <NoDefaultExcludes>true</NoDefaultExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="gamecapture-plugin/**" Exclude="gamecapture-plugin/**/bin/**;gamecapture-plugin/**/obj/**" />
+  </ItemGroup>
+
+</Project>

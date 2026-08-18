@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Plain net10.0: a plugin parses text; it never touches the capture stack, so the Windows
+       TFM the engine needs must not appear here. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>MyCapturePlugin</RootNamespace>
+    <!-- tests/ is nested inside this project's own directory (not a sibling, unlike the rest of
+         this repo), so without this the SDK's default Compile glob pulls the test project's .cs
+         files in here too — a second, xunit-less compile of them that fails on missing types. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="GameCapture.Sdk" Version="SDK_VERSION" />
+    <PackageReference Include="GameCapture.Contracts" Version="SDK_VERSION" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="config.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
