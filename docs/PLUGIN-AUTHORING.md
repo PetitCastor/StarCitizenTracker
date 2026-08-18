@@ -41,6 +41,7 @@ no engine process. That is the point of the plain-`net10.0` boundary.
 ## 2. Creating the project
 
 ```powershell
+# once GameCapture.Plugin.Template has a stable release on nuget.org (TASK-21/22):
 dotnet new install GameCapture.Plugin.Template
 dotnet new gamecapture-plugin -n MyPlugin
 ```
@@ -51,9 +52,10 @@ class to rename and fill in — [§3](#3-anatomy-of-a-plugin) picks up from here
 `dotnet new gamecapture-plugin -h` lists every symbol, including `--SdkVersion` for pinning a
 specific `GameCapture.Sdk`/`.Contracts`/`.Sdk.Testing` version.
 
-Until `GameCapture.Plugin.Template` and the SDK trio are on nuget.org (TASK-21/22), install and
-instantiate from a local feed instead — pack the four projects, then pin the instantiated project at
-that exact prerelease with `--SdkVersion`:
+Until then, install and instantiate from a local feed instead — pack the four projects, add the feed
+as a source scoped to the new project (not the machine-wide config `dotnet nuget add source` mutates
+without `--configfile`), and pin the instantiated project at that exact prerelease with
+`--SdkVersion`:
 
 ```powershell
 dotnet pack src/GameCapture.Contracts -c Release -o feed
@@ -63,11 +65,13 @@ dotnet pack templates/GameCapture.Plugin.Template.csproj -c Release -o feed
 
 dotnet new install feed/GameCapture.Plugin.Template.*.nupkg
 dotnet new gamecapture-plugin -n MyPlugin --SdkVersion <version from feed/GameCapture.Sdk.*.nupkg>
-dotnet nuget add source <full path to feed> --name local
+
+dotnet new nugetconfig -o MyPlugin
+dotnet nuget add source <full path to feed> --name local --configfile MyPlugin/nuget.config
 ```
 
-`.github/workflows/ci.yml`'s `template-guard` job runs this exact sequence on every PR (the anti-rot
-guard for the template itself: instantiate, build, test); read it for the working recipe, including
+`.github/workflows/ci.yml`'s `template-guard` job runs this same recipe on every PR (the anti-rot
+guard for the template itself: instantiate, build, test); read it for the working detail, including
 the `GameCapture.Sdk.Testing` name collision to filter out of the `GameCapture.Sdk.*.nupkg` glob.
 
 Setting the project up by hand — no template package available — is
