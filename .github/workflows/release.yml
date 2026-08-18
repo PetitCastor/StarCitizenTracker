@@ -2,7 +2,10 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    # [0-9]*.[0-9]*.[0-9]* rather than bare v*: MinVer can't parse v*, vNext, v1.0, etc. and falls
+    # back to 0.0.0-alpha.0 — a version that would then get packed and pushed to nuget.org, where it
+    # can never be deleted, only unlisted. Tightened to what MinVer actually accepts.
+    tags: ['v[0-9]*.[0-9]*.[0-9]*']
 
 jobs:
   release:
@@ -43,23 +46,6 @@ jobs:
       - name: Pack
         run: dotnet pack GameCapture.slnx --no-build -c Release -o packages
 
-      # OIDC → short-lived API key, scoped to this job only. No NUGET_API_KEY secret exists anywhere
-      # in this repo: nothing long-lived to rotate or leak.
-      - name: NuGet login (Trusted Publishing)
-        id: nuget-login
-        uses: NuGet/login@v1
-        with:
-          user: ${{ vars.NUGET_USER }}
-
-      - name: Push packages
-        run: dotnet nuget push "packages/*.nupkg" --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
-
-      # REQUIRED as its own step. `packages/*.nupkg` does not glob-match `.snupkg`, so without this
-      # second push the symbol packages TASK-16 wired up (SourceLink + snupkg) build every release
-      # and ship never — and nobody notices, because the main push above succeeds on its own.
-      - name: Push symbol packages
-        run: dotnet nuget push "packages/*.snupkg" --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
-
       # MinVerVersionOverride is gone: unlike the old auto-increment trigger, the tag this release is
       # named for already exists (it's what triggered the run), so MinVer reads it directly off
       # history without help.
@@ -69,7 +55,38 @@ jobs:
       - name: Archive GameCapture.Engine
         run: Compress-Archive publish/engine/* GameCapture.Engine-${{ github.ref_name }}-win-x64.zip
 
+      # GitHub release created BEFORE the NuGet push, and named explicitly rather than via a glob:
+      # windows-latest's default shell is pwsh, and pwsh does not glob-expand arguments to native
+      # executables (only cmdlet parameters) — `GameCapture.Engine-*.zip` reaches `gh` as that
+      # literal string, `gh` does not glob either, and every run that tried it failed here. The name
+      # was already computed to build the archive above, so reusing it can't drift.
+      # Ordered ahead of the NuGet steps on purpose: TASK-17 doesn't wire a real trusted-publishing
+      # policy (that's TASK-22, since policies are per-repository and this mono-repo isn't the repo
+      # that survives), so the NuGet steps below will fail OIDC exchange for any tag pushed before
+      # then. Putting the GitHub release first means that failure doesn't also cost the release.
       - name: Create release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create ${{ github.ref_name }} GameCapture.Engine-*.zip --generate-notes
+        run: gh release create ${{ github.ref_name }} "GameCapture.Engine-${{ github.ref_name }}-win-x64.zip" --generate-notes
+
+      # OIDC → short-lived API key, scoped to this job only. No NUGET_API_KEY secret exists anywhere
+      # in this repo: nothing long-lived to rotate or leak.
+      - name: NuGet login (Trusted Publishing)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Push packages
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        run: dotnet nuget push "packages/*.nupkg" --api-key $env:NUGET_API_KEY --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      # Kept as its own push rather than relying on the main push's automatic co-located-snupkg
+      # pickup, so a `.snupkg` sitting anywhere `packages/*.nupkg` doesn't literally match (a future
+      # output-layout change, a partial `dotnet pack` re-run) still ships. --skip-duplicate makes the
+      # common case — the main push already uploaded it — a no-op 409, not a failure.
+      - name: Push symbol packages
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        run: dotnet nuget push "packages/*.snupkg" --api-key $env:NUGET_API_KEY --source https://api.nuget.org/v3/index.json --skip-duplicate
