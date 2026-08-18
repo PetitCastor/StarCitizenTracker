@@ -31,8 +31,13 @@ jobs:
           next=$((latest + 1))
           echo "VERSION=v0.$next.0" >> "$GITHUB_ENV"
 
+      # MinVerVersionOverride, because the tag this release is named for does not exist yet: it is
+      # created by `gh release create` two steps down. Left to derive its own version, MinVer would
+      # see only the PREVIOUS tag and stamp the engine 0.N.1-alpha.0.x — so a release labelled
+      # v0.13.0 would ship an exe reporting 0.12.1-alpha.0.7 as its engine_version over the wire.
+      # $VERSION already carries the leading v, which MinVerTagPrefix strips.
       - name: Publish CaptureEngine
-        run: dotnet publish src/CaptureEngine -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish/engine
+        run: dotnet publish src/CaptureEngine -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:MinVerVersionOverride=$($env:VERSION.TrimStart('v')) -o publish/engine
 
       - name: Archive CaptureEngine
         run: Compress-Archive publish/engine/* CaptureEngine-${env:VERSION}-win-x64.zip

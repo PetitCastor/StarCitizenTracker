@@ -38,6 +38,14 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- NuGet's vulnerability-audit codes stay warnings. TreatWarningsAsErrors covers RESTORE
+         warnings too, so without this exemption a newly published advisory against any transitive
+         dependency turns every local build, every CI run, and release.yml's publish red with no
+         change to this repository — a third party's disclosure timing deciding whether the build
+         works. They must stay loud, which is why they are exempted rather than silenced with
+         NoWarn: an advisory should interrupt someone, not the pipeline. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
   </PropertyGroup>
 
   <!-- Nothing ships unless it says so. Only the three consumable libraries flip this back to true

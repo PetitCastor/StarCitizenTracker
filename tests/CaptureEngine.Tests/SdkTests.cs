@@ -3,15 +3,6 @@ using CaptureContracts.Proto;
 using TrackerSdk;
 using Xunit;
 
-// TreatWarningsAsErrors (Directory.Build.props) turns obsolete-member use into a build failure, and
-// this file uses TickData's obsolete Text/Ocr/Pixels/Error accessors on purpose: they still ship, so
-// their documented behaviour — a failed region and an absent one both reading as "nothing", which is
-// exactly why they are deprecated — still has to be pinned by a test. Migrating these call sites to
-// the Try- forms would not modernise the suite, it would delete the only coverage the obsolete
-// surface has. The pragma and the assertions under it come out together, in the change that removes
-// the members themselves.
-#pragma warning disable CS0618 // Type or member is obsolete
-
 namespace CaptureEngine.Tests;
 
 /// <summary>
@@ -101,6 +92,16 @@ public class SdkTests
     /// its finalisers off the stream completing, so a replay that finished without reaching the
     /// SDK would leave a tracker's last order uncommitted.
     /// </summary>
+    // TreatWarningsAsErrors (Directory.Build.props) makes obsolete-member use a build failure, and
+    // the tests from here down to the matching #restore use TickData's obsolete
+    // Text/Ocr/Pixels/Error accessors on purpose: those members still ship, so their documented
+    // behaviour — a failed region and an absent one both reading as "nothing", which is exactly why
+    // they are deprecated — still has to be pinned. Migrating these call sites to the Try- forms
+    // would not modernise the suite, it would delete the only coverage the obsolete surface has.
+    // Scoped to this region rather than the whole file so an accidental obsolete call elsewhere in
+    // SdkTests is still caught. Pragma and assertions come out together, with the members.
+#pragma warning disable CS0618 // Type or member is obsolete
+
     [Fact]
     [Trait("Category", "Integration")]
     public async Task TrackAsync_OverReplayCorpus_YieldsEveryTickThenCompletes()
@@ -355,6 +356,8 @@ public class SdkTests
         Assert.NotNull(tick.Ocr("probe_as_text"));
         Assert.NotNull(tick.Pixels("panel_as_pixels"));
     }
+
+#pragma warning restore CS0618 // Type or member is obsolete
 
     /// <summary>
     /// Disposing a session twice, which is what an `await using` plus an explicit cleanup path

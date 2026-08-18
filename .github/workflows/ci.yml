@@ -13,6 +13,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Unshallow, and specifically for the tags: MinVer derives the version from the height
+          # above the latest v* tag, and checkout's default depth-1 clone carries no tags at all.
+          # Without this the whole build silently versions itself 0.0.0-alpha.0 — packages, the
+          # engine's reported engine_version, everything — and nothing fails to say so.
+          # EngineVersionTests is the guard that turns that into a red build.
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4

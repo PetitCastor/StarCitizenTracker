@@ -5,12 +5,19 @@
        capture stack the split exists to isolate. -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <PropertyGroup>
     <IsPackable>true</IsPackable>
+    <!-- Ship the XML docs. Without this the doc comments on ITrackerPlugin, TickData and
+         RoiErrorPolicy exist only in this repository, and a package consumer (who by definition
+         cannot read the source) gets bare signatures in IntelliSense. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- CS1591 (missing comment on a public member) stays off. The aim is to ship the docs that
+         exist, which is most of the surface a plugin author touches; turning every undocumented
+         property on a value type into a build error under TreatWarningsAsErrors would be a
+         documentation project, not a packaging one. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
     <PackageId>SCTracker.Sdk</PackageId>
     <Description>Client SDK for writing Star Citizen Tracker plugins. Implement ITrackerPlugin — a name, a set of screen regions, and what to do with one frame's OCR results — and hand it to TrackerPluginHost, which owns connecting, subscribing, reconnecting, and shutdown.</Description>
     <PackageTags>star-citizen;screen-capture;ocr;plugin;sdk;grpc</PackageTags>
@@ -18,7 +25,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Update="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <ItemGroup>
