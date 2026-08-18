@@ -27,7 +27,8 @@ and tested outside this repository against the real SDK — see [§8](#8-cold-st
   ([Releases](https://github.com/PetitCastor/StarCitizenTracker/releases) ships
   `CaptureEngine-vX.Y.Z-win-x64.zip`, a self-contained exe) or a clone built with
   `dotnet build StarCitizenTracker.slnx`. Running the engine live needs Windows 10/11 with an OCR
-  language pack installed; replaying a corpus needs the same, but no game.
+  language pack installed; replaying a corpus needs the same, but no game. Note where the exe lands
+  — parity tests need `SCTRACKER_ENGINE_PATH` pointed at it ([§7](#7-testing)).
 - **A clone of this repository** until the SDK is on nuget.org (TASK-16/17). The plugin references
   `TrackerSdk` and `CaptureContracts` by project path today; the package IDs it will reference
   afterwards are `SCTracker.Sdk`, `SCTracker.Contracts`, and `SCTracker.Sdk.Testing`.
@@ -43,8 +44,8 @@ Once the template ships (TASK-18) this section is one command:
 dotnet new sctracker-plugin -n MyPlugin
 ```
 
-Until then, the manual setup is five files — four here, plus a test project in
-[§7](#7-testing). A plugin is an ordinary console exe:
+Until then, the manual setup is five files — three here, two in [§3](#3-anatomy-of-a-plugin) — plus
+a test project in [§7](#7-testing). A plugin is an ordinary console exe:
 
 ```powershell
 dotnet new console -n MyPlugin
@@ -182,9 +183,19 @@ public sealed class CounterPlugin : ITrackerPlugin
     /// reading is emitted whether or not it changed.</summary>
     public Task OnManualTickAsync(TickContext ctx, CancellationToken ct)
     {
-        if (ctx.Tick.TryGetText(MyPlugin.Rois.Counter.Id, out var text))
-            ctx.Services.Emit(new TrackerRecord(ctx.Tick.Timestamp, Name, TriggerKind.Manual, text));
+        if (!ctx.Tick.TryGetText(MyPlugin.Rois.Counter.Id, out var text))
+            return Task.CompletedTask;
 
+        var value = text.Trim();
+        if (value.Length == 0)
+            return Task.CompletedTask;
+
+        // Advance the same state the auto path keeps. Without this, a press on a value that
+        // has not been seen yet emits it as Manual and the very next tick emits it again as
+        // Auto — one screen, two records.
+        _last = value;
+
+        ctx.Services.Emit(new TrackerRecord(ctx.Tick.Timestamp, Name, TriggerKind.Manual, value));
         return Task.CompletedTask;
     }
 
@@ -478,10 +489,20 @@ public class ReplayParityTests
 }
 ```
 
-`EngineLocator.Resolve()` takes `SCTRACKER_ENGINE_PATH` when set (CI pins it to the exact artifact it
-built) and otherwise finds the newest locally built `CaptureEngine.exe`. `ReplayOptions.Timeout`
-(default 5 minutes) is a hang bound, not a performance budget — a handful of frames measures in
-seconds, so a fired timeout means something is stuck.
+**`SCTRACKER_ENGINE_PATH` is effectively required for a plugin outside this repository.**
+`EngineLocator.Resolve()` uses that env var when set, and otherwise falls back to walking up from the
+test assembly's output looking for `src/CaptureEngine/bin` — a path that exists only inside a clone
+of the engine repo. From a plugin's own repo the fallback finds nothing and `Resolve()` throws
+`InvalidOperationException`, so point the variable at the engine you unpacked or built in
+[§1](#1-prerequisites):
+
+```powershell
+$env:SCTRACKER_ENGINE_PATH = "C:\tools\sctracker\CaptureEngine.exe"
+```
+
+CI does the same thing, pinning it to the exact artifact it downloaded or built.
+`ReplayOptions.Timeout` (default 5 minutes) is a hang bound, not a performance budget — a handful of
+frames measures in seconds, so a fired timeout means something is stuck.
 
 **Capturing the corpus** is a live, in-game step: run the engine with `--save-frames`, press the
 configured hotkey (`engine-config.json`'s `hotkey`, default `Ctrl+Shift+F12`, logged at startup) at
@@ -507,9 +528,13 @@ replay never drops a tick, are in [`REPLAY.md`](REPLAY.md).
 Verified against a project built outside this repository:
 
 ```powershell
-dotnet new console -n MyPlugin           # then edit csproj per §2
-dotnet build MyPlugin -c Release         # SDK + contracts build from the clone
-dotnet test  MyPlugin.Tests -c Release   # unit tests, no engine needed
+dotnet new console -n MyPlugin              # then edit csproj per §2, add the files from §3
+dotnet new xunit   -n MyPlugin.Tests        # then edit csproj per §7
+dotnet build MyPlugin -c Release            # SDK + contracts build from the clone
+
+# Unit tests only. The parity test from §7 spawns a real engine, so it is filtered out
+# here — run it once SCTRACKER_ENGINE_PATH and a corpus are in place.
+dotnet test MyPlugin.Tests -c Release --filter "Category!=Integration"
 ```
 
 Then, with an engine running:

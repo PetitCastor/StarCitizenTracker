@@ -31,8 +31,12 @@ public sealed class CounterPlugin : ITrackerPlugin
     private static readonly RoiSubscription Counter =
         new("counter", new RoiRect(1000, 110, 420, 100), 3.0, RoiKind.Text);
 
+    // A field, not => [Counter]: the host re-reads Rois per connect and per errored tick,
+    // and an expression body would allocate a fresh array each time.
+    private static readonly IReadOnlyList<RoiSubscription> All = [Counter];
+
     public string Name => "counter";
-    public IReadOnlyList<RoiSubscription> Rois => [Counter];
+    public IReadOnlyList<RoiSubscription> Rois => All;
 
     public Task OnTickAsync(TickContext ctx, CancellationToken ct)
     {

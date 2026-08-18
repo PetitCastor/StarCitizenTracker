@@ -25,7 +25,7 @@ Usually transitively, via `SCTracker.Sdk`.
 | Type | Role |
 | --- | --- |
 | `RoiRect` | A region in reference space (2560x1440). What a plugin declares. |
-| `RoiScaler` | Reference space ↔ frame space. The engine applies it; the constants live here. |
+| `RoiScaler` | Maps reference space **to** frame space, one way only. The engine applies it; a plugin never maps a reported rect back. |
 | `OcrRegionResult`, `OcrLineInfo`, `OcrWordInfo` | An OCR reading, with per-word geometry for column-shaped UI. |
 | `PixelPatchSampler` | CPU-side BGRA sampling over a small pixel region — colour probes. |
 | `WireLimits` | The budgets a payload must stay inside (max pixel bytes, default/clamped OCR scale). |
