@@ -23,7 +23,7 @@ public sealed class ProtocolMismatchException : TrackerSdkException
     /// negotiation entirely and reported no range at all.</summary>
     public uint EngineMax { get; }
 
-    /// <summary>What this SDK announced — <see cref="ProtocolVersion.Current"/> in production.</summary>
+    /// <summary>What this SDK announced — <see cref="CaptureContracts.ProtocolVersion.Current"/> in production.</summary>
     public uint SdkVersion { get; }
 
     private static string Describe(uint engineMin, uint engineMax, uint sdkVersion)

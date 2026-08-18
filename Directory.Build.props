@@ -1,0 +1,72 @@
+<Project>
+
+  <!-- Applies to every project in the repository. Per-project csproj files still own what makes
+       them different — TFM, OutputType, package identity — and set IsPackable=false where the
+       project is an app or a test rather than something anyone consumes. -->
+
+  <PropertyGroup>
+    <Authors>PetitCastor</Authors>
+    <Company>PetitCastor</Company>
+    <Copyright>Copyright (c) PetitCastor</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/PetitCastor/StarCitizenTracker</PackageProjectUrl>
+
+    <!-- The repository as it exists today. The engine/plugins split (TASK-22/23) moves this to
+         PetitCastor/sctracker-engine; pointing at that repo before it exists would embed
+         SourceLink URLs that 404 for every package published in between. -->
+    <RepositoryUrl>https://github.com/PetitCastor/StarCitizenTracker</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <!-- SourceLink. No Microsoft.SourceLink.GitHub PackageReference: since .NET 8 the SDK carries
+       SourceLink itself, and adding the package on top is redundant. These two are the switches
+       that are still ours to set — PublishRepositoryUrl puts the repo URL in the nuspec, and
+       EmbedUntrackedSources ships generated files a git checkout cannot serve. -->
+  <PropertyGroup>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
+    <!-- Normalizes embedded source paths so two machines building the same commit produce
+         byte-identical output. Only on CI: locally it makes the paths unusable for debugging.
+         GitHub Actions sets CI=true for every run. -->
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- NuGet's vulnerability-audit codes stay warnings. TreatWarningsAsErrors covers RESTORE
+         warnings too, so without this exemption a newly published advisory against any transitive
+         dependency turns every local build, every CI run, and release.yml's publish red with no
+         change to this repository — a third party's disclosure timing deciding whether the build
+         works. They must stay loud, which is why they are exempted rather than silenced with
+         NoWarn: an advisory should interrupt someone, not the pipeline. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+  </PropertyGroup>
+
+  <!-- Nothing ships unless it says so. Only the three consumable libraries flip this back to true
+       (CaptureContracts, TrackerSdk, TrackerSdk.Testing); the engine is a release-zip exe, the
+       plugins are applications, and a test project has no business on a feed. Opt-in rather than
+       opt-out so a project added later cannot be published by forgetting a line. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- One version train for the whole repository: MinVer derives it from the height above the
+       latest v* tag, so nothing here or in any csproj carries a hand-maintained <Version>.
+       AssemblyInformationalVersion follows, which is what the engine reports as engine_version
+       on the wire (EngineStatus.cs) — the packages and a running engine therefore cannot
+       disagree about which build they are. -->
+  <PropertyGroup>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MinVer" Version="7.0.0" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

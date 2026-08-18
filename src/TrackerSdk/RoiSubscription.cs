@@ -13,6 +13,12 @@ namespace TrackerSdk;
 /// <param name="Id">Client-chosen, unique within this client's set; how results are looked up on a
 /// <see cref="TickData"/>. A plain string still works at every call site — <see cref="RoiId"/>
 /// converts implicitly — so declaring a region reads exactly as it did.</param>
+/// <param name="Rect">The region, in reference space. The engine maps it to the captured frame;
+/// never pre-scale it to a screen resolution.</param>
+/// <param name="Scale">OCR upscale factor, per the remarks above: small UI text usually wants 2-4,
+/// 0 takes the engine default, and the engine clamps whatever it cannot fit.</param>
+/// <param name="Kind">What the engine should return for this region — OCR text, OCR with word
+/// geometry, or raw pixels.</param>
 public sealed record RoiSubscription(RoiId Id, RoiRect Rect, double Scale, RoiKind Kind)
 {
     internal RoiSpec ToProto() => new()

@@ -12,6 +12,12 @@ Debug/
 Release/
 TestResults/
 
+# `dotnet pack -o` output. The packages are build products of a tagged commit; the release
+# pipeline publishes them to a feed, nothing here should carry them.
+artifacts/
+*.nupkg
+*.snupkg
+
 # Runtime output
 captures/
 

@@ -32,6 +32,28 @@ public sealed class RefineryLogic
     /// the row-sum by up to about a cSCU per row.</summary>
     private static int ChecksumTolerance(int rows) => Math.Max(2, rows);
 
+    // The three helpers below replace TickData's obsolete Text/Ocr/Pixels accessors, and reproduce
+    // their behaviour exactly: a region that FAILED and a region that read empty both answer
+    // "nothing". The ambiguity is preserved deliberately — the point here is to stop calling a
+    // deprecated member, not to change what the parser does with a failed ROI, which is a
+    // behavioural change and belongs in its own task with the parity corpus to prove it.
+    //
+    // The two readings where that ambiguity would actually corrupt state — the panel header and the
+    // modal — are already guarded ahead of every read below, by the explicit RoiFailed abort in
+    // OnTickAsync. What is left running on "failure reads as empty" is the content: the materials
+    // list, the toggle strip, station/process/footer, and the yield rows. Under
+    // RoiErrorPolicy.SkipErrored those do reach this code while flagged, and each one currently
+    // degrades to a missing value rather than to a wrong one — a partial read, which the ledger
+    // merge is idempotent about, not a fabricated transition.
+    private static string TextOf(TickData tick, RoiId id) =>
+        tick.TryGetText(id, out var text) ? text : string.Empty;
+
+    private static OcrRegionResult? OcrOf(TickData tick, RoiId id) =>
+        tick.TryGetOcr(id, out var ocr) ? ocr : null;
+
+    private static PixelPatchSampler? PixelsOf(TickData tick, RoiId id) =>
+        tick.TryGetPixels(id, out var pixels) ? pixels : null;
+
     internal sealed class Accumulator
     {
         private int _nextOrder;
@@ -95,7 +117,7 @@ public sealed class RefineryLogic
         if (panelFailed || modalFailed)
             return;
 
-        var panelText = tick.Text(Rois.Panel.Id);
+        var panelText = TextOf(tick, Rois.Panel.Id);
         var state = RefineryParser.Classify(panelText);
 
         // Debounced SETUP-session bookkeeping (H4): a single OCR-flicker tick must not reset the
@@ -125,7 +147,7 @@ public sealed class RefineryLogic
         // *counts*: only on a live panel, or while watching for a delivery after the completed
         // panel's header has already gone.
         var needModal = state != PanelState.None || _expectCollect;
-        var modalVisible = needModal && IsModalVisible(tick.Text(Rois.Modal.Id));
+        var modalVisible = needModal && IsModalVisible(TextOf(tick, Rois.Modal.Id));
 
         // Submit: the SETUP order leaves for PROCESSING/COMPLETED with rows accumulated, so persist
         // the authoritative setup order exactly once, once the debouncer confirms the departure.
@@ -173,8 +195,8 @@ public sealed class RefineryLogic
         if (listFailed || stripFailed)
             return;
 
-        var list = tick.Ocr(Rois.SetupList.Id);
-        var strip = tick.Pixels(Rois.Toggles.Id);
+        var list = OcrOf(tick, Rois.SetupList.Id);
+        var strip = PixelsOf(tick, Rois.Toggles.Id);
         if (list is null || strip is null)
             return;
 
@@ -196,9 +218,9 @@ public sealed class RefineryLogic
 
         // Every tick now: the header/footer text is already on the tick, so the monolith's
         // every-4th-tick cadence would only be skipping work that has already been paid for.
-        var stationText = tick.Text(Rois.Station.Id);
-        var processText = tick.Text(Rois.Process.Id);
-        var footerText = tick.Text(Rois.Footer.Id);
+        var stationText = TextOf(tick, Rois.Station.Id);
+        var processText = TextOf(tick, Rois.Process.Id);
+        var footerText = TextOf(tick, Rois.Footer.Id);
 
         // Last-good-wins: one bad OCR tick must not blank a field already captured.
         _acc.Station = RefineryParser.ParseStation(stationText) ?? _acc.Station;
@@ -214,7 +236,7 @@ public sealed class RefineryLogic
         if (RoiFailed(tick, Rois.YieldList.Id))
             return;
 
-        var list = tick.Ocr(Rois.YieldList.Id);
+        var list = OcrOf(tick, Rois.YieldList.Id);
         if (list is null)
             return;
 
@@ -236,7 +258,7 @@ public sealed class RefineryLogic
         // Prefer the station captured during SETUP: the completed-panel header OCRs less reliably
         // (e.g. "STANTON" -> "•TANTON"), and an inconsistent station would split the record.
         var station = _acc.Station
-            ?? RefineryParser.ParseStation(tick.Text(Rois.Station.Id))
+            ?? RefineryParser.ParseStation(TextOf(tick, Rois.Station.Id))
             ?? "?";
 
         int? total = null;
@@ -253,7 +275,7 @@ public sealed class RefineryLogic
                 return;
 
             // Same frame as the rows above — the monolith's conditional OCR call is now a lookup.
-            var totalText = tick.Text(Rois.YieldTotal.Id);
+            var totalText = TextOf(tick, Rois.YieldTotal.Id);
             total = RefineryParser.ParseYieldTotal(totalText);
             var clean = extract.DroppedTopEdge + extract.DroppedBottomEdge == 0
                 && !materials.Any(m => m.YieldCscu == 0);
@@ -325,8 +347,8 @@ public sealed class RefineryLogic
 
         // Calibration aid: dump raw OCR of the regions this tracker depends on. A DETAILED
         // subscription still carries the plain text, so the setup list answers Text() too.
-        var list = tick.Text(Rois.SetupList.Id);
-        var footer = tick.Text(Rois.Footer.Id);
+        var list = TextOf(tick, Rois.SetupList.Id);
+        var footer = TextOf(tick, Rois.Footer.Id);
         _services.Emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Manual,
             $"[raw list ROI]\r\n{list}\r\n[raw footer ROI]\r\n{footer}"));
     }

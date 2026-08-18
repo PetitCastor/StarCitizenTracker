@@ -154,6 +154,14 @@ public sealed class CaptureClient : IDisposable
     /// Ordinary transport failure — the engine went away mid-handshake, most likely. Left untyped
     /// on purpose; see the remark on <see cref="TrackSession.ReceiveHelloAckAsync"/>.
     /// </exception>
+    /// <param name="clientName">
+    /// Identifies this plugin on the stream: what the engine lists in <c>GetStatus</c>, and what a
+    /// user reads when two plugins share one engine.
+    /// </param>
+    /// <param name="rois">
+    /// The complete region set for the session. Sent as the initial subscription, so it must be
+    /// whole before the first tick — per-tick atomicity leaves no mid-tick round-trip to add one.
+    /// </param>
     /// <param name="sessionCt">
     /// Governs the whole subscription, not just this call: it is the Track call's own token, so
     /// firing it later ends the stream and makes <see cref="TrackSession.Ticks"/> throw. Pass the
