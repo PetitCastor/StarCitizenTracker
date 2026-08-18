@@ -4,7 +4,9 @@ using Xunit;
 
 namespace MyCapturePlugin.Tests;
 
-public class MyCapturePluginTests
+// Named independently of the project, like CounterPlugin itself: sourceName substitution would
+// otherwise splice a dotted project name (`-n Acme.MyPlugin`) straight into this declaration.
+public class CounterPluginTests
 {
     private static TickContext Tick(TickData tick, FakePluginServices services)
         => TickContext.ForTesting(tick, services);
@@ -12,7 +14,7 @@ public class MyCapturePluginTests
     [Fact]
     public async Task Emits_once_per_change()
     {
-        var plugin = new MyCapturePlugin();
+        var plugin = new CounterPlugin();
         var services = new FakePluginServices();
 
         await plugin.OnTickAsync(Tick(new TickDataBuilder().Text("counter", "3/8").Build(), services), default);
@@ -25,7 +27,7 @@ public class MyCapturePluginTests
     [Fact]
     public async Task Failed_roi_emits_nothing()
     {
-        var plugin = new MyCapturePlugin();
+        var plugin = new CounterPlugin();
         var services = new FakePluginServices();
         var tick = new TickDataBuilder().Errored("counter", "region outside frame").Build();
 
@@ -34,7 +36,22 @@ public class MyCapturePluginTests
         Assert.Empty(services.Emitted);
         Assert.Equal(RoiStatus.Failed, tick.Status("counter"));
     }
+}
 
+/// <summary>
+/// A spawned engine owns a named pipe and a Windows OCR instance, so two of these must never run
+/// at once. This is what actually serializes them — the <c>[Collection]</c> attribute on
+/// <see cref="ReplayParityTests"/> alone only groups; without <c>DisableParallelization</c> the
+/// group still runs beside every other collection in the assembly. Keep this even with only one
+/// test below: it is the thing that stops the second test you add here from racing the first one
+/// for the same pipe.
+/// </summary>
+[CollectionDefinition("ReplayParity", DisableParallelization = true)]
+public class ReplayParityCollection;
+
+[Collection("ReplayParity")]
+public class ReplayParityTests
+{
     /// <summary>
     /// Parity smoke test: spawns a real GameCapture.Engine.exe replaying a PNG corpus and drives
     /// this plugin through its real GameCapturePluginHost path — public SDK plus an engine binary,
@@ -56,7 +73,7 @@ public class MyCapturePluginTests
         {
             EnginePath = EngineLocator.Resolve(),
             CorpusDir = corpusDir,
-            Plugin = new MyCapturePlugin(),
+            Plugin = new CounterPlugin(),
         });
 
         Assert.Equal(0, result.ExitCode);

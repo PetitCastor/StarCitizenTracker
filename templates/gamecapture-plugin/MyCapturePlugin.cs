@@ -1,44 +1,29 @@
-using GameCapture.Contracts;
 using GameCapture.Sdk;
 
-// The plugin class below shares its name with this namespace, which shadows the static Rois
-// holder for any unqualified reference inside it (member lookup wins over enclosing-namespace
-// lookup) — this alias is the least noisy way to reach Rois from there without `global::` each
-// time. Same pattern the shipped plugins use (see RefineryPlugin.cs).
-using MyCapturePluginRois = global::MyCapturePlugin.Rois;
-
 namespace MyCapturePlugin;
-
-/// <summary>
-/// The regions this plugin subscribes, in reference space (2560x1440). Static for the life of the
-/// process because the host reads it once per connect and sends it as the initial subscription:
-/// per-tick atomicity means there is no mid-tick round-trip that could add a region later.
-/// </summary>
-public static class Rois
-{
-    /// <summary>The panel line the counter lives on. Scale is the OCR upscale factor —
-    /// small text needs 2-4; 0 means "engine default". Nudge the rect and scale once you have a
-    /// real corpus: see the calibration workflow in README.md.</summary>
-    public static readonly RoiSubscription Counter =
-        new("counter", new RoiRect(1000, 110, 420, 100), 3.0, RoiKind.Text);
-
-    /// <summary>A field, not <c>=> [Counter]</c>: the set never changes, and an
-    /// expression-bodied property would build a fresh array on every read.</summary>
-    public static readonly IReadOnlyList<RoiSubscription> All = [Counter];
-}
 
 /// <summary>
 /// Watches one region for a counter and emits a record every time the value changes.
 /// Replace this with your own tracking logic — the shape (ROI in, CaptureRecord out) stays the same.
 /// </summary>
-public sealed class MyCapturePlugin : IGameCapturePlugin
+/// <remarks>
+/// Named independently of the project (not after <c>sourceName</c>, unlike the namespace and the
+/// file names): a class named after the project would collide with the namespace of the same name
+/// on every unqualified reference to it — see the shadowing note on the <c>Rois</c> access below —
+/// and, worse, a project name containing a dot (a normal .NET convention, e.g. <c>-n Acme.MyPlugin</c>)
+/// would splice straight into the class declaration and fail to compile.
+/// </remarks>
+public sealed class CounterPlugin : IGameCapturePlugin
 {
     private string? _last;
 
     /// <summary>The client name on the Track stream and the tag on every record emitted.</summary>
     public string Name => "MyCapturePlugin";
 
-    public IReadOnlyList<RoiSubscription> Rois => MyCapturePluginRois.All;
+    // Namespace-qualified, not a bare `Rois.All`: this class implements the interface's own `Rois`
+    // property below, and a member always shadows a same-named type for unqualified lookup inside
+    // the class that declares it — the qualified form is what reaches the static holder instead.
+    public IReadOnlyList<RoiSubscription> Rois => MyCapturePlugin.Rois.All;
 
     /// <summary>Default. The host skips any tick in which a subscribed region failed, so
     /// nothing below ever reads a degraded value.</summary>
@@ -48,7 +33,7 @@ public sealed class MyCapturePlugin : IGameCapturePlugin
     {
         // TryGetText, not Text: a failed region and a genuinely blank panel both answer "",
         // and only the bool tells them apart.
-        if (!ctx.Tick.TryGetText(MyCapturePluginRois.Counter.Id, out var text))
+        if (!ctx.Tick.TryGetText(MyCapturePlugin.Rois.Counter.Id, out var text))
             return Task.CompletedTask;
 
         var value = text.Trim();
@@ -64,15 +49,16 @@ public sealed class MyCapturePlugin : IGameCapturePlugin
     }
 
     /// <summary>The hotkey means "capture what is on screen right now" here, so the current
-    /// reading is emitted whether or not it changed.</summary>
-    public Task OnManualTickAsync(TickContext ctx, CancellationToken ct)
+    /// reading is emitted whether or not it changed — and, while you're calibrating, this is also
+    /// where the region gets dumped so you can see exactly what the engine read (see README.md).</summary>
+    public async Task OnManualTickAsync(TickContext ctx, CancellationToken ct)
     {
-        if (!ctx.Tick.TryGetText(MyCapturePluginRois.Counter.Id, out var text))
-            return Task.CompletedTask;
+        if (!ctx.Tick.TryGetText(MyCapturePlugin.Rois.Counter.Id, out var text))
+            return;
 
         var value = text.Trim();
         if (value.Length == 0)
-            return Task.CompletedTask;
+            return;
 
         // Advance the same state the auto path keeps. Without this, a press on a value that
         // has not been seen yet emits it as Manual and the very next tick emits it again as
@@ -80,7 +66,20 @@ public sealed class MyCapturePlugin : IGameCapturePlugin
         _last = value;
 
         ctx.Services.Emit(new CaptureRecord(ctx.Tick.Timestamp, Name, TriggerKind.Manual, value));
-        return Task.CompletedTask;
+
+        // Calibration aid, not tracking logic: emit the record first (above), then dump inside a
+        // try — DumpFrameAsync returns null (and this is a no-op) unless config.json's
+        // saveDebugFrames is true, which is the ordinary case.
+        try
+        {
+            var png = await ctx.Services.DumpFrameAsync(MyCapturePlugin.Rois.Counter.Rect, "counter", ct);
+            if (png is not null)
+                ctx.Services.LogVerbose($"counter read '{value}' — frame dumped to {png}");
+        }
+        catch
+        {
+            // Debugging aid only: a failed dump must never take down the tick that already emitted.
+        }
     }
 
     /// <summary>Frames this plugin never saw. A tracker watching for an edge can miss it
