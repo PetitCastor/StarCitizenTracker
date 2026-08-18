@@ -253,4 +253,5 @@ flag semantics above) — there is no separate hotkey RPC or event.
   version policy, coordinate spaces, compatibility rules, backpressure.
 - [`docs/REPLAY.md`](REPLAY.md) — corpus layout, capturing one in-game, `ReplayHarness`.
 - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — process diagram, frozen constraints, component table.
-- `docs/PLUGIN-AUTHORING.md` (planned, TASK-15) — writing an `ITrackerPlugin` against this catalog.
+- [`docs/PLUGIN-AUTHORING.md`](PLUGIN-AUTHORING.md) — writing an `ITrackerPlugin` against this
+  catalog.
