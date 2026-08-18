@@ -1,6 +1,6 @@
 # Engine/Plugin Maturation — Task Series Overview
 
-**Status (2026-08-18): TASK-01..22 complete; `gamecapture-engine` repo live at v1.0.0 on nuget.org.** Handshake, buf CI, SDK plugin host (`IGameCapturePlugin`/`GameCapturePluginHost`), tick semantics, `GameCapture.Sdk.Testing`, Mission/Refinery migration, `ReplayHarness`, and replay-parity now living in the plugin suites (with a real corpus doc at `docs/REPLAY.md`) are done. Mission parity is present but skipped, awaiting a **[USER ACTION]** in-game corpus capture. TASK-16.5 (de-brand to GameCapture) landed before TASK-17 as planned. Remaining: TASK-23 (plugins repo), TASK-24 (archive + smoke). Original context: the split had correct process boundaries but immature DX — plugins knew engine internals, SDK consumed by ProjectReference, no NuGet packaging, no protocol versioning.
+**Status (2026-08-18): TASK-01..23 complete; `gamecapture-engine` repo live at v1.0.0 on nuget.org, `gamecapture-plugins` repo live with full history (commit 96a1c29), CI green.** Handshake, buf CI, SDK plugin host (`IGameCapturePlugin`/`GameCapturePluginHost`), tick semantics, `GameCapture.Sdk.Testing`, Mission/Refinery migration, `ReplayHarness`, and replay-parity now living in the plugin suites (with a real corpus doc at `docs/REPLAY.md`) are done. Mission parity is present but skipped, awaiting a **[USER ACTION]** in-game corpus capture — carried as documented debt into `gamecapture-plugins`. TASK-16.5 (de-brand to GameCapture) landed before TASK-17 as planned. Remaining: TASK-24 (archive + smoke). Original context: the split had correct process boundaries but immature DX — plugins knew engine internals, SDK consumed by ProjectReference, no NuGet packaging, no protocol versioning.
 
 Goal: two repos — `PetitCastor/gamecapture-engine` (engine + contracts + SDK + template, publishes to nuget.org) and `PetitCastor/gamecapture-plugins` (MissionPlugin + RefineryPlugin as pure SDK consumers) — with `dotnet new gamecapture-plugin` as the starting point for new devs.
 
@@ -57,7 +57,7 @@ Goal: two repos — `PetitCastor/gamecapture-engine` (engine + contracts + SDK +
 | 20 | TASK-20 compat + manifest | 9 | S | — |
 | 21 | TASK-21 dry run + v1.0.0 | 9 | S | — |
 | 22 | ✅ TASK-22 engine repo | 10 | M | — |
-| 23 | TASK-23 plugins repo | 11 | M | — |
+| 23 | ✅ TASK-23 plugins repo | 11 | M | — |
 | 24 | TASK-24 archive + smoke | 11 | S | — |
 
 ## Verification (end-to-end)
