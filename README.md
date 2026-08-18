@@ -62,6 +62,7 @@ plugin's `config.json`, or overridden on both with `--pipe <name>`.
 | [`docs/ENGINE-SERVICES.md`](docs/ENGINE-SERVICES.md) | The engine's service catalog: `Track`/`ReadRoi`/`DumpFrame`/`GetStatus`, replay mode, hotkeys, every budget and constant. |
 | [`docs/PROTOCOL.md`](docs/PROTOCOL.md) | The wire contract: transport, handshake, version policy, coordinate spaces, tick atomicity, backpressure. |
 | [`docs/REPLAY.md`](docs/REPLAY.md) | Replay corpora: layout, capturing one in-game, and running one against a plugin. |
+| [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) | Protocol/engine/SDK version matrix, version-bump rules, release checklist. |
 
 ## Repository map
 

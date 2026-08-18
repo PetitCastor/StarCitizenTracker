@@ -255,3 +255,5 @@ flag semantics above) — there is no separate hotkey RPC or event.
 - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — process diagram, frozen constraints, component table.
 - [`docs/PLUGIN-AUTHORING.md`](PLUGIN-AUTHORING.md) — writing an `IGameCapturePlugin` against this
   catalog.
+- [`docs/COMPATIBILITY.md`](COMPATIBILITY.md) — protocol/engine/SDK version matrix and the rules for
+  bumping each.

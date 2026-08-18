@@ -85,6 +85,9 @@ was built, the protocol version says what can talk to what.
   stream, and the negotiated version is `min(client, engine Current)` — exposed to the plugin as
   `TrackSession.NegotiatedProtocol`.
 
+For which protocol/engine/SDK versions actually shipped together, and the release checklist for
+recording a new one, see [`docs/COMPATIBILITY.md`](COMPATIBILITY.md).
+
 ## Compatibility rules
 
 - **Unknown fields are preserved and ignored** (proto3). A newer engine may fill fields an older
