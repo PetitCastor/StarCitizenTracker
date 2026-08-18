@@ -154,6 +154,64 @@ No workflow job is dropped outright; every job that exists today keeps a home in
 job (its own `build-test`, carrying the re-pointed grep gate as one of its steps) that has no tracked
 source in this repo to list in the path table above — TASK-23 authors it from scratch.
 
+## Rehearsal notes (TASK-21, 2026-08-18)
+
+Both halves rehearsed in an isolated scratch dir via `git clone --no-local` + `git filter-repo
+--paths-from-file` against this repo's local checkout (not a fresh clone of a hosted
+`Z:\Projects\GameCapture` — no such path exists; TASK-21's draft step 2 command assumed a repo
+rename that hasn't happened. TASK-22/23 should clone from the actual GitHub remote,
+`https://github.com/PetitCastor/StarCitizenTracker.git`, until TASK-24 renames it). Two path list
+files were generated from the **Path table** above (engine: 23 entries incl. the four `both`
+duplicates; plugins: 10 entries incl. the same four duplicates) and fed to `git filter-repo
+--paths-from-file`; `GameCapture.slnx` and `README.md` were deliberately left off both lists per
+their `archive` disposition — filter-repo drops any path not listed, so the old solution file did not
+carry over and each rehearsal solution below is a clean craft, not an edit.
+
+1. **`GameCapture.slnx` → two solutions**: crafted `GameCaptureEngine.slnx` (4 src + 4 test projects,
+   `templates/` intentionally not added — matches the **Slnx split plan** above) and, after moving
+   `src/Plugins/MissionPlugin` and `src/Plugins/RefineryPlugin` up to `src/MissionPlugin` and
+   `src/RefineryPlugin` per the same plan, `GameCapturePlugins.slnx` (2 src + 2 test). Both built
+   clean on the first try structurally — the friction was entirely in the plugins' project files
+   (next two items).
+2. **Plugins repo has no `Directory.Build.props` today** (path table sends it to `engine` only) —
+   but `MissionPlugin`/`RefineryPlugin`/their test projects compile only because that file sets
+   `ImplicitUsings=enable` and `Nullable=enable` repo-wide; neither plugin `.csproj` sets these
+   itself. Without it, the plugins build fails with 60 `CS0246` errors (`Task`, `CancellationToken`,
+   `IReadOnlyList<>`, `Dictionary<,>`, etc. all "not found" — implicit usings silently absent).
+   **TASK-23 must author a `gamecapture-plugins/Directory.Build.props`** carrying at minimum
+   `Nullable`, `ImplicitUsings`, and `TreatWarningsAsErrors` (+ the NU190x audit-code exemption) —
+   not a copy of the engine's full file, which also carries `MinVerTagPrefix`/SourceLink/`IsPackable`
+   settings that only make sense for a package-publishing repo. The rehearsal's minimal 4-property
+   version (Nullable/ImplicitUsings/TreatWarningsAsErrors/WarningsNotAsErrors) was sufficient.
+3. **`ProjectReference` → `PackageReference` conversion** touched 4 files: both plugin `.csproj`s
+   (`GameCapture.Contracts` + `GameCapture.Sdk` refs) and both test `.csproj`s (same two, plus
+   `GameCapture.Sdk.Testing` — the plugin-under-test itself stays a `ProjectReference`, now pointing
+   at the moved `src/<Plugin>/…` path instead of `src/Plugins/<Plugin>/…`). All three packages were
+   packed from the engine rehearsal clone (`dotnet pack … -o ../local-feed`, Release config) at
+   whatever version MinVer derived there (`0.12.1-alpha.0.15` this run — expect a different number
+   each rehearsal since MinVer counts commit height); a `nuget.config` in the plugins clone added
+   that folder as a package source alongside `nuget.org`. TASK-23's real `gamecapture-plugins` repo
+   consumes actual nuget.org-published versions instead of a local feed, so this step is
+   rehearsal-only scaffolding, not something to carry into the real split.
+4. **Parity tests need `GAMECAPTURE_ENGINE_PATH`**: `RefineryPlugin.Tests`'s two `ReplayParityTests`
+   (`GameCapture.Sdk.Testing.EngineLocator.Resolve()`) throw `InvalidOperationException` unless
+   pointed at a built `GameCapture.Engine.exe` — expected per `00-OVERVIEW.md`'s "Plugins-repo CI"
+   decision (engine binary via GitHub Release download, pinned in `engine-version.txt`), confirmed
+   working end-to-end here by pointing the env var at the engine rehearsal clone's own
+   `bin/Debug/net10.0-windows10.0.22621.0/GameCapture.Engine.exe`. `MissionPlugin.Tests`'s equivalent
+   test stays skipped (no `mission-accept` corpus yet, unrelated to the split — see Disposition B).
+5. **Final state, both isolated clones, `dotnet build` then `dotnet test` on each solution file**:
+   engine — 0 errors/0 warnings, 307 tests passed/0 failed (1 known pre-existing flake,
+   `SdkHandshakeTests.TrackAsync_WhenTheEngineRefusesTheVersion_ThrowsProtocolMismatch`, a gRPC
+   handshake timeout under load first seen at TASK-17; passes in isolation, unrelated to filter-repo
+   or the split); plugins — 0 errors/0 warnings, 177 passed/1 skipped/0 failed including both
+   Refinery parity corpora green against the engine binary.
+
+**Go/no-go: GO.** Both halves build and test green in isolation with the fixes above. Nothing in
+this repo's mono-repo tree was modified by the rehearsal itself; the two friction items that need a
+real fix (items 1 and 2 above) are scoped to TASK-22 (clone source) and TASK-23 (new
+`Directory.Build.props`) respectively, not to this task or the mono-repo.
+
 ## Audit pass
 
 `git ls-files | wc -l` on this branch (`feature/mat-task-20-freeze-docs`, including this PR's own two
