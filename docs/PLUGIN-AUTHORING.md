@@ -2,7 +2,7 @@
 
 A plugin is a console process that says what regions of the screen it cares about and what to do
 when a tick carrying them arrives. It never captures, never runs OCR, and never speaks gRPC:
-`TrackerPluginHost` owns connecting, subscribing, reconnecting, cancellation, and the end-of-run
+`GameCapturePluginHost` owns connecting, subscribing, reconnecting, cancellation, and the end-of-run
 summary, and hands the plugin one `TickContext` at a time.
 
 This is the golden path, in order. Every code block below is taken from a project that was built
@@ -25,13 +25,13 @@ and tested outside this repository against the real SDK — see [§8](#8-cold-st
   in [`ARCHITECTURE.md`](ARCHITECTURE.md#frozen-constraints).
 - **An engine to talk to.** Either a release zip
   ([Releases](https://github.com/PetitCastor/StarCitizenTracker/releases) ships
-  `CaptureEngine-vX.Y.Z-win-x64.zip`, a self-contained exe) or a clone built with
-  `dotnet build StarCitizenTracker.slnx`. Running the engine live needs Windows 10/11 with an OCR
+  `GameCapture.Engine-vX.Y.Z-win-x64.zip`, a self-contained exe) or a clone built with
+  `dotnet build GameCapture.slnx`. Running the engine live needs Windows 10/11 with an OCR
   language pack installed; replaying a corpus needs the same, but no game. Note where the exe lands
-  — parity tests need `SCTRACKER_ENGINE_PATH` pointed at it ([§7](#7-testing)).
+  — parity tests need `GAMECAPTURE_ENGINE_PATH` pointed at it ([§7](#7-testing)).
 - **A clone of this repository** until the SDK is on nuget.org (TASK-16/17). The plugin references
-  `TrackerSdk` and `CaptureContracts` by project path today; the package IDs it will reference
-  afterwards are `SCTracker.Sdk`, `SCTracker.Contracts`, and `SCTracker.Sdk.Testing`.
+  `GameCapture.Sdk` and `GameCapture.Contracts` by project path today; the package IDs it will reference
+  afterwards are `GameCapture.Sdk`, `GameCapture.Contracts`, and `GameCapture.Sdk.Testing`.
 
 Writing and unit-testing a plugin needs none of the above beyond the SDK — no Windows OCR, no game,
 no engine process. That is the point of the plain-`net10.0` boundary.
@@ -41,7 +41,7 @@ no engine process. That is the point of the plain-`net10.0` boundary.
 Once the template ships (TASK-18) this section is one command:
 
 ```powershell
-dotnet new sctracker-plugin -n MyPlugin
+dotnet new gamecapture-plugin -n MyPlugin
 ```
 
 Until then, the manual setup is five files — three here, two in [§3](#3-anatomy-of-a-plugin) — plus
@@ -67,14 +67,14 @@ dotnet new console -n MyPlugin
   </PropertyGroup>
 
   <!-- Until the SDK is on nuget.org (TASK-16/17), reference it out of a clone of the engine
-       repo. $(SCTrackerRepo) is the clone root; set it here or pass -p:SCTrackerRepo=... -->
+       repo. $(GameCaptureRepo) is the clone root; set it here or pass -p:GameCaptureRepo=... -->
   <PropertyGroup>
-    <SCTrackerRepo Condition="'$(SCTrackerRepo)' == ''">C:\src\StarCitizenTracker</SCTrackerRepo>
+    <GameCaptureRepo Condition="'$(GameCaptureRepo)' == ''">C:\src\StarCitizenTracker</GameCaptureRepo>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="$(SCTrackerRepo)\src\TrackerSdk\TrackerSdk.csproj" />
-    <ProjectReference Include="$(SCTrackerRepo)\src\CaptureContracts\CaptureContracts.csproj" />
+    <ProjectReference Include="$(GameCaptureRepo)\src\GameCapture.Sdk\GameCapture.Sdk.csproj" />
+    <ProjectReference Include="$(GameCaptureRepo)\src\GameCapture.Contracts\GameCapture.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -89,7 +89,7 @@ pipe name must match the engine's:
 
 ```json
 {
-  "pipeName": "StarCitizenTracker.CaptureEngine",
+  "pipeName": "GameCapture.Engine",
   "saveDebugFrames": false
 }
 ```
@@ -98,16 +98,16 @@ pipe name must match the engine's:
 (argument parsing, the connect/reconnect loop, Ctrl+C, the summary) lives in the host now:
 
 ```csharp
-using TrackerSdk;
+using GameCapture.Sdk;
 
-return await TrackerPluginHost.RunAsync(new MyPlugin.CounterPlugin(), args);
+return await GameCapturePluginHost.RunAsync(new MyPlugin.CounterPlugin(), args);
 ```
 
 `CounterPlugin.cs` and `Rois.cs` are the next section.
 
 ## 3. Anatomy of a plugin
 
-`ITrackerPlugin` (`src/TrackerSdk/Plugin/ITrackerPlugin.cs`) has three required members — `Name`,
+`IGameCapturePlugin` (`src/GameCapture.Sdk/Plugin/IGameCapturePlugin.cs`) has three required members — `Name`,
 `Rois`, `OnTickAsync` — and four with defaults. The example below reads one text region, remembers
 the last value, and emits a record whenever it changes.
 
@@ -116,8 +116,8 @@ it once per connect and sends it as the initial subscription: per-tick atomicity
 mid-tick round-trip that could add a region later.
 
 ```csharp
-using CaptureContracts;
-using TrackerSdk;
+using GameCapture.Contracts;
+using GameCapture.Sdk;
 
 namespace MyPlugin;
 
@@ -140,14 +140,14 @@ public static class Rois
 The plugin itself:
 
 ```csharp
-using TrackerSdk;
+using GameCapture.Sdk;
 
 namespace MyPlugin;
 
 /// <summary>
 /// Watches one region for a counter and emits a record every time the value changes.
 /// </summary>
-public sealed class CounterPlugin : ITrackerPlugin
+public sealed class CounterPlugin : IGameCapturePlugin
 {
     private string? _last;
 
@@ -175,7 +175,7 @@ public sealed class CounterPlugin : ITrackerPlugin
 
         // The tick's own timestamp, not DateTime.Now: the engine buffers a few ticks per
         // client, so processing time can trail the frame it describes.
-        ctx.Services.Emit(new TrackerRecord(ctx.Tick.Timestamp, Name, TriggerKind.Auto, value));
+        ctx.Services.Emit(new CaptureRecord(ctx.Tick.Timestamp, Name, TriggerKind.Auto, value));
         return Task.CompletedTask;
     }
 
@@ -195,7 +195,7 @@ public sealed class CounterPlugin : ITrackerPlugin
         // Auto — one screen, two records.
         _last = value;
 
-        ctx.Services.Emit(new TrackerRecord(ctx.Tick.Timestamp, Name, TriggerKind.Manual, value));
+        ctx.Services.Emit(new CaptureRecord(ctx.Tick.Timestamp, Name, TriggerKind.Manual, value));
         return Task.CompletedTask;
     }
 
@@ -217,7 +217,7 @@ Members, and what each one is for:
 
 | Member | Required | Notes |
 | --- | --- | --- |
-| `Name` | yes | Client name on the Track stream (what the engine lists in `GetStatus`, and what a user sees when two plugins share an engine) *and* the `TrackerRecord.Tracker` tag on everything emitted. |
+| `Name` | yes | Client name on the Track stream (what the engine lists in `GetStatus`, and what a user sees when two plugins share an engine) *and* the `CaptureRecord.Tracker` tag on everything emitted. |
 | `Rois` | yes | Complete before the first tick; see [§4](#4-rois-space-scale-calibration). |
 | `OnTickAsync` | yes | One scanned frame. Called sequentially — the host never overlaps two ticks — so plugin state needs no locking. Throwing does **not** end the run: the host logs it and delivers the next tick, because one unparseable frame out of thousands is normal. |
 | `ErrorPolicy` | no (`AbortTick`) | See [§5](#5-error-handling). |
@@ -227,7 +227,7 @@ Members, and what each one is for:
 
 What the plugin gets back, through `ctx.Services` (`IPluginServices`):
 
-- `Emit(TrackerRecord)` — records one captured event. The host both keeps it for the summary and
+- `Emit(CaptureRecord)` — records one captured event. The host both keeps it for the summary and
   prints it, so a plugin must not print the same thing itself.
 - `Log` / `LogVerbose` — user-visible lines; `LogVerbose` is a no-op unless the run was started with
   `--verbose`, so it is safe to call on every tick.
@@ -359,7 +359,7 @@ first read after reconnect is a re-sighting rather than a new event.
 
 ## 7. Testing
 
-Two layers, both in `TrackerSdk.Testing` — a real package, not `InternalsVisibleTo`, so it works
+Two layers, both in `GameCapture.Sdk.Testing` — a real package, not `InternalsVisibleTo`, so it works
 from a plugin's own repository.
 
 The test project, on the manual path of [§2](#2-creating-the-project) — `dotnet new xunit -n
@@ -377,7 +377,7 @@ MyPlugin.Tests`, then:
   </PropertyGroup>
 
   <PropertyGroup>
-    <SCTrackerRepo Condition="'$(SCTrackerRepo)' == ''">C:\src\StarCitizenTracker</SCTrackerRepo>
+    <GameCaptureRepo Condition="'$(GameCaptureRepo)' == ''">C:\src\StarCitizenTracker</GameCaptureRepo>
   </PropertyGroup>
 
   <ItemGroup>
@@ -392,8 +392,8 @@ MyPlugin.Tests`, then:
   <ItemGroup>
     <ProjectReference Include="..\MyPlugin\MyPlugin.csproj" />
     <!-- TickDataBuilder, FakePluginServices, ReplayHarness. Becomes a PackageReference on
-         SCTracker.Sdk.Testing once the packages ship (TASK-16/17). -->
-    <ProjectReference Include="$(SCTrackerRepo)\src\TrackerSdk.Testing\TrackerSdk.Testing.csproj" />
+         GameCapture.Sdk.Testing once the packages ship (TASK-16/17). -->
+    <ProjectReference Include="$(GameCaptureRepo)\src\GameCapture.Sdk.Testing\GameCapture.Sdk.Testing.csproj" />
   </ItemGroup>
 
 </Project>
@@ -404,8 +404,8 @@ engine would have sent it (through the SDK's own wire mapping), so a tick that c
 the wire cannot pass a test. `FakePluginServices` records emissions and logs instead of printing.
 
 ```csharp
-using TrackerSdk;
-using TrackerSdk.Testing;
+using GameCapture.Sdk;
+using GameCapture.Sdk.Testing;
 using Xunit;
 
 namespace MyPlugin.Tests;
@@ -450,8 +450,8 @@ reads word geometry), `.Pixels(id, b, g, r, w, h)`, `.Errored(id, message)`, plu
 `FakePluginServices` exposes `Emitted`, `Logs`, `VerboseLogs`, a settable `Engine`, and
 `DumpFrameHandler` / `ReadRoiHandler` for the calibration paths.
 
-**Parity: `ReplayHarness`.** This spawns a real `CaptureEngine.exe` replaying a PNG corpus and drives
-the plugin through its real `TrackerPluginHost` path — public SDK plus an engine binary, no in-proc
+**Parity: `ReplayHarness`.** This spawns a real `GameCapture.Engine.exe` replaying a PNG corpus and drives
+the plugin through its real `GameCapturePluginHost` path — public SDK plus an engine binary, no in-proc
 shortcuts. It is what a plugin's CI runs.
 
 ```csharp
@@ -489,15 +489,15 @@ public class ReplayParityTests
 }
 ```
 
-**`SCTRACKER_ENGINE_PATH` is effectively required for a plugin outside this repository.**
+**`GAMECAPTURE_ENGINE_PATH` is effectively required for a plugin outside this repository.**
 `EngineLocator.Resolve()` uses that env var when set, and otherwise falls back to walking up from the
-test assembly's output looking for `src/CaptureEngine/bin` — a path that exists only inside a clone
+test assembly's output looking for `src/GameCapture.Engine/bin` — a path that exists only inside a clone
 of the engine repo. From a plugin's own repo the fallback finds nothing and `Resolve()` throws
 `InvalidOperationException`, so point the variable at the engine you unpacked or built in
 [§1](#1-prerequisites):
 
 ```powershell
-$env:SCTRACKER_ENGINE_PATH = "C:\tools\sctracker\CaptureEngine.exe"
+$env:GAMECAPTURE_ENGINE_PATH = "C:\tools\sctracker\GameCapture.Engine.exe"
 ```
 
 CI does the same thing, pinning it to the exact artifact it downloaded or built.
@@ -533,14 +533,14 @@ dotnet new xunit   -n MyPlugin.Tests        # then edit csproj per §7
 dotnet build MyPlugin -c Release            # SDK + contracts build from the clone
 
 # Unit tests only. The parity test from §7 spawns a real engine, so it is filtered out
-# here — run it once SCTRACKER_ENGINE_PATH and a corpus are in place.
+# here — run it once GAMECAPTURE_ENGINE_PATH and a corpus are in place.
 dotnet test MyPlugin.Tests -c Release --filter "Category!=Integration"
 ```
 
 Then, with an engine running:
 
 ```powershell
-dotnet run --project <clone>\src\CaptureEngine     # terminal 1
+dotnet run --project <clone>\src\GameCapture.Engine     # terminal 1
 dotnet run --project MyPlugin -- --verbose         # terminal 2
 ```
 
@@ -570,7 +570,7 @@ public sealed class MyConfig : PluginConfig
 
 // Program.cs, for a plugin that takes its settings as a constructor argument
 var config = PluginConfig.Load<MyConfig>(Path.Combine(AppContext.BaseDirectory, "config.json"));
-return await TrackerPluginHost.RunAsync(new MyPlugin.LedgerPlugin(config), args,
+return await GameCapturePluginHost.RunAsync(new MyPlugin.LedgerPlugin(config), args,
     new PluginHostOptions { Config = config });
 ```
 

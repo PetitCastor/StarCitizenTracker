@@ -30,13 +30,13 @@ jobs:
       # part), the engine, both plugins and all five test projects. A green CI that skipped any of
       # them would be merging a split that no longer joins back up.
       - name: Restore
-        run: dotnet restore StarCitizenTracker.slnx
+        run: dotnet restore GameCapture.slnx
 
       - name: Build
-        run: dotnet build StarCitizenTracker.slnx --no-restore -c Release
+        run: dotnet build GameCapture.slnx --no-restore -c Release
 
       - name: Test
-        run: dotnet test StarCitizenTracker.slnx --no-build -c Release --verbosity normal
+        run: dotnet test GameCapture.slnx --no-build -c Release --verbosity normal
 
       # A plugin owns parsing and nothing else: its code must not name a transport type (Grpc,
       # RpcException), the wire proto namespace, or the engine assembly. `dotnet build` cannot catch a
@@ -47,7 +47,7 @@ jobs:
       - name: Plugin boundary grep gate
         shell: bash
         run: |
-          if rg -n -g '*.cs' "using Grpc|RpcException|CaptureContracts\.Proto|StarCitizenTracker\.CaptureEngine" src/Plugins/; then
+          if rg -n -g '*.cs' "using Grpc|RpcException|GameCapture\.Contracts\.Proto|GameCapture\.Engine" src/Plugins/; then
             echo "::error::Plugin boundary violation — a plugin references an engine/transport internal (listed above)."
             exit 1
           fi

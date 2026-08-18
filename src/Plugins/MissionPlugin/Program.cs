@@ -1,3 +1,3 @@
-using TrackerSdk;
+using GameCapture.Sdk;
 
-return await TrackerPluginHost.RunAsync(new MissionPlugin.MissionPlugin(), args);
+return await GameCapturePluginHost.RunAsync(new MissionPlugin.MissionPlugin(), args);

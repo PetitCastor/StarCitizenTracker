@@ -12,7 +12,7 @@
     <PackageProjectUrl>https://github.com/PetitCastor/StarCitizenTracker</PackageProjectUrl>
 
     <!-- The repository as it exists today. The engine/plugins split (TASK-22/23) moves this to
-         PetitCastor/sctracker-engine; pointing at that repo before it exists would embed
+         PetitCastor/gamecapture-engine; pointing at that repo before it exists would embed
          SourceLink URLs that 404 for every package published in between. -->
     <RepositoryUrl>https://github.com/PetitCastor/StarCitizenTracker</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -49,7 +49,7 @@
   </PropertyGroup>
 
   <!-- Nothing ships unless it says so. Only the three consumable libraries flip this back to true
-       (CaptureContracts, TrackerSdk, TrackerSdk.Testing); the engine is a release-zip exe, the
+       (GameCapture.Contracts, GameCapture.Sdk, GameCapture.Sdk.Testing); the engine is a release-zip exe, the
        plugins are applications, and a test project has no business on a feed. Opt-in rather than
        opt-out so a project added later cannot be published by forgetting a line. -->
   <PropertyGroup>

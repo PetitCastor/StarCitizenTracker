@@ -1,4 +1,4 @@
-using CaptureContracts;
+using GameCapture.Contracts;
 using Xunit;
 
 namespace RefineryPlugin.Tests;

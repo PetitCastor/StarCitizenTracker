@@ -9,8 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\CaptureContracts\CaptureContracts.csproj" />
-    <ProjectReference Include="..\..\TrackerSdk\TrackerSdk.csproj" />
+    <ProjectReference Include="..\..\GameCapture.Contracts\GameCapture.Contracts.csproj" />
+    <ProjectReference Include="..\..\GameCapture.Sdk\GameCapture.Sdk.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -19,8 +19,8 @@
 
   <ItemGroup>
     <!-- Own-test grant only, same as MissionPlugin: this survives the repo split because the test
-         project ships beside its plugin. The former CaptureEngine.Tests grant is gone — the
-         replay-parity tests now drive this plugin through the public TrackerPluginHost surface
+         project ships beside its plugin. The former GameCapture.Engine.Tests grant is gone — the
+         replay-parity tests now drive this plugin through the public GameCapturePluginHost surface
          (TASK-11), so they no longer need its internals. -->
     <InternalsVisibleTo Include="RefineryPlugin.Tests" />
   </ItemGroup>

@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Same Windows TFM and platform as the engine: the host under test is the real one, WGC
+       and Windows OCR types included. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.Net.Client" Version="2.83.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" Version="6.0.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\GameCapture.Engine\GameCapture.Engine.csproj" />
+    <ProjectReference Include="..\..\src\GameCapture.Contracts\GameCapture.Contracts.csproj" />
+    <!-- The SDK is driven against the in-proc engine here: this is the only project that can own
+         both ends of the pipe, so the client's own tests live with the engine's. -->
+    <ProjectReference Include="..\..\src\GameCapture.Sdk\GameCapture.Sdk.csproj" />
+    <!-- ReplayHarness itself: its own tests spawn GameCapture.Engine.exe as a real separate process
+         rather than hosting the engine in-proc, so this reference is only for
+         EngineLocator/ReplayOptions/ReplayHarness/ReplayResult, never for the engine's own types.
+         No plugin reference here (TASK-13) — replay-parity tests moved to their plugins' own
+         suites so this project has no dependency the repo split cannot keep. -->
+    <ProjectReference Include="..\..\src\GameCapture.Sdk.Testing\GameCapture.Sdk.Testing.csproj" />
+  </ItemGroup>
+
+  <!-- The one corpus this suite still drives directly: Fixtures/engine-smoke, the corpus behind
+       essentially the whole engine-side suite (scan loop, gRPC host, SDK client, handshake, plugin
+       host, and the thin ReplayHarness smoke). Copied next to the test assembly so relative paths
+       resolve at run time. -->
+  <ItemGroup>
+    <None Include="Fixtures\**\*.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

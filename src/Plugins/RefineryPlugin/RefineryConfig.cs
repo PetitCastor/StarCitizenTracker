@@ -1,4 +1,4 @@
-using TrackerSdk;
+using GameCapture.Sdk;
 
 namespace RefineryPlugin;
 

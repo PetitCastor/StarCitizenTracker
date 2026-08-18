@@ -23,12 +23,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Plugins\RefineryPlugin\RefineryPlugin.csproj" />
-    <ProjectReference Include="..\..\src\TrackerSdk\TrackerSdk.csproj" />
-    <!-- Ticks are built through TrackerSdk.Testing's public TickDataBuilder now, not the SDK's
-         internal TickData.From (the InternalsVisibleTo grant that died with TASK-11). CaptureContracts
+    <ProjectReference Include="..\..\src\GameCapture.Sdk\GameCapture.Sdk.csproj" />
+    <!-- Ticks are built through GameCapture.Sdk.Testing's public TickDataBuilder now, not the SDK's
+         internal TickData.From (the InternalsVisibleTo grant that died with TASK-11). GameCapture.Contracts
          still comes in directly for RoiRect/RectF geometry in the fabricated OCR word boxes. -->
-    <ProjectReference Include="..\..\src\CaptureContracts\CaptureContracts.csproj" />
-    <ProjectReference Include="..\..\src\TrackerSdk.Testing\TrackerSdk.Testing.csproj" />
+    <ProjectReference Include="..\..\src\GameCapture.Contracts\GameCapture.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\GameCapture.Sdk.Testing\GameCapture.Sdk.Testing.csproj" />
   </ItemGroup>
 
   <!-- The monolith's replay corpora this plugin's parity tests drive. Scoped to just these two

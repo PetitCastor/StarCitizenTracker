@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
-using CaptureContracts;
+using GameCapture.Contracts;
 
 namespace RefineryPlugin;
 

@@ -1,5 +1,5 @@
-using TrackerSdk;
-using TrackerSdk.Testing;
+using GameCapture.Sdk;
+using GameCapture.Sdk.Testing;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -16,7 +16,7 @@ public class ReplayParityCollection;
 
 /// <summary>
 /// The acceptance gate RefineryPlugin already has (see <c>RefineryPlugin.Tests.ReplayParityTests</c>):
-/// the engine replaying a real corpus through the plugin's own <see cref="TrackerPluginHost"/> path,
+/// the engine replaying a real corpus through the plugin's own <see cref="GameCapturePluginHost"/> path,
 /// asserted against what a human capture is known to produce. MissionPlugin never had one — the
 /// monolith shipped mission tracking without a corpus to pin it against, so this is new rather than
 /// ported.
@@ -52,7 +52,7 @@ public class ReplayParityTests(ITestOutputHelper output)
         // The one mission accepted mid-corpus must produce exactly one Auto record — a manual
         // hotkey press is a separate trigger this corpus does not exercise.
         var record = Assert.Single(result.Records);
-        Assert.Equal("missions", record.Tracker);
+        Assert.Equal("missions", record.Plugin);
         Assert.Equal(TriggerKind.Auto, record.Trigger);
         Assert.NotEmpty(record.RawText);
     }

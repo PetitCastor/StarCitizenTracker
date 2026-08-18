@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Plain net10.0, like GameCapture.Sdk itself: this is the companion package a plugin's own tests
+       reference, and a Windows TFM here would defeat the reason it exists (see remarks below). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <!-- Ship the XML docs. Without this the doc comments on IGameCapturePlugin, TickData and
+         RoiErrorPolicy exist only in this repository, and a package consumer (who by definition
+         cannot read the source) gets bare signatures in IntelliSense. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- CS1591 (missing comment on a public member) stays off. The aim is to ship the docs that
+         exist, which is most of the surface a plugin author touches; turning every undocumented
+         property on a value type into a build error under TreatWarningsAsErrors would be a
+         documentation project, not a packaging one. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <PackageId>GameCapture.Sdk.Testing</PackageId>
+    <Description>Testing companion to GameCapture.Sdk: build engine-shaped ticks with TickDataBuilder, substitute the host's services with FakePluginServices, and run replay-parity tests against a real capture engine with ReplayHarness.</Description>
+    <PackageTags>star-citizen;testing;plugin;sdk</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Update="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!-- InternalsVisibleTo cannot reach across a repo boundary, which is exactly where a
+       third-party plugin's tests live once the split happens (TASK-22/23). This package is the
+       `Microsoft.AspNetCore.Mvc.Testing`-style substitute: a public builder that only this
+       assembly may reach TickData.From through. -->
+  <ItemGroup>
+    <ProjectReference Include="..\GameCapture.Sdk\GameCapture.Sdk.csproj" />
+    <ProjectReference Include="..\GameCapture.Contracts\GameCapture.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

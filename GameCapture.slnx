@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GameCapture.Contracts/GameCapture.Contracts.csproj" />
+    <Project Path="src/GameCapture.Engine/GameCapture.Engine.csproj" />
+    <Project Path="src/GameCapture.Sdk/GameCapture.Sdk.csproj" />
+    <Project Path="src/GameCapture.Sdk.Testing/GameCapture.Sdk.Testing.csproj" />
+  </Folder>
+  <Folder Name="/src/Plugins/">
+    <Project Path="src/Plugins/MissionPlugin/MissionPlugin.csproj" />
+    <Project Path="src/Plugins/RefineryPlugin/RefineryPlugin.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GameCapture.Contracts.Tests/GameCapture.Contracts.Tests.csproj" />
+    <Project Path="tests/GameCapture.Engine.Tests/GameCapture.Engine.Tests.csproj" />
+    <Project Path="tests/MissionPlugin.Tests/MissionPlugin.Tests.csproj" />
+    <Project Path="tests/RefineryPlugin.Tests/RefineryPlugin.Tests.csproj" />
+    <Project Path="tests/GameCapture.Sdk.Tests/GameCapture.Sdk.Tests.csproj" />
+    <Project Path="tests/GameCapture.Sdk.Testing.Tests/GameCapture.Sdk.Testing.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Deliberately plain net10.0 (no windows TFM): plugins reference this and must stay
+       WinRT-free so they never take a dependency on the capture stack. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <!-- Package identity. The assembly keeps its own name; only what ships to nuget.org is
+       renamed, so the GameCapture.* prefix groups the three packages without churning every
+       using directive in the repo. Version comes from MinVer (Directory.Build.props). -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <!-- Ship the XML docs. Without this the doc comments on IGameCapturePlugin, TickData and
+         RoiErrorPolicy exist only in this repository, and a package consumer (who by definition
+         cannot read the source) gets bare signatures in IntelliSense. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- CS1591 (missing comment on a public member) stays off. The aim is to ship the docs that
+         exist, which is most of the surface a plugin author touches; turning every undocumented
+         property on a value type into a build error under TreatWarningsAsErrors would be a
+         documentation project, not a packaging one. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <PackageId>GameCapture.Contracts</PackageId>
+    <Description>Wire contract shared by the GameCapture capture engine and its plugins: the gRPC service definition and the ROI, OCR, and pixel types both sides exchange. Usually consumed transitively via GameCapture.Sdk.</Description>
+    <PackageTags>star-citizen;screen-capture;ocr;grpc;protobuf;contracts</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Update="README.md" Pack="true" PackagePath="\" />
+
+    <!-- Ship the .proto itself. Grpc.Tools is PrivateAssets=All, so a consumer gets the generated
+         C# but no way to regenerate it or to implement the contract in another language. After the
+         TASK-22/23 split the only other copy lives in a repository they may not have; packing it
+         makes the package self-describing. Content, not Compile: it is a reference artifact here,
+         and a consumer who wants codegen from it opts in with their own Grpc.Tools. -->
+    <None Include="$(MSBuildThisFileDirectory)..\..\protos\capture.proto"
+          Pack="true" PackagePath="content\protos\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.35.1" />
+    <PackageReference Include="Grpc.Core.Api" Version="2.83.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.83.0" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!-- "Both" generates the client (CaptureEngineServiceClient) for the SDK/plugins and the
+       server base (CaptureEngineServiceBase) for the engine, from one frozen contract. -->
+  <ItemGroup>
+    <Protobuf Include="$(MSBuildThisFileDirectory)..\..\protos\capture.proto" GrpcServices="Both" Link="protos\capture.proto" />
+  </ItemGroup>
+
+</Project>

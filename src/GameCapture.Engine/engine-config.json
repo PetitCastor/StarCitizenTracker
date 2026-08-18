@@ -1,0 +1,10 @@
+{
+  "hotkey": "Ctrl+Shift+F12",
+  "monitorIndex": 0,
+  "outputDir": "captures",
+  "ocrLanguage": "",
+  "pipeName": "GameCapture.Engine",
+  "scanIntervalMs": 500,
+  "metricsEnabled": true,
+  "metricsIntervalMs": 1000
+}

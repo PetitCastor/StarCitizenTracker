@@ -17,7 +17,7 @@ what each RPC actually does and every wire budget/constant, see
 
 | | |
 | --- | --- |
-| Endpoint | Windows named pipe, default `StarCitizenTracker.CaptureEngine` (`CaptureContracts/PipeContract.cs`) |
+| Endpoint | Windows named pipe, default `GameCapture.Engine` (`GameCapture.Contracts/PipeContract.cs`) |
 | Override | engine `--pipe <name>` / `engine-config.json`; each plugin's `config.json` must match |
 | Protocol | gRPC over HTTP/2, prior knowledge (`GrpcHost.cs:38` forces `HttpProtocols.Http2`) |
 | Security | Plaintext. A pipe carries no TLS to negotiate with; it inherits the logon session's ACL, and the engine is a per-user process |
@@ -31,8 +31,8 @@ A pipe that nobody serves makes the dial *block* rather than fail, which is why 
 
 ```mermaid
 sequenceDiagram
-    participant P as Plugin (TrackerSdk)
-    participant E as CaptureEngine
+    participant P as Plugin (GameCapture.Sdk)
+    participant E as GameCapture.Engine
 
     P->>E: GetStatus()
     E-->>P: StatusResponse(min_supported_protocol, max_supported_protocol, ...)
@@ -46,7 +46,7 @@ sequenceDiagram
             E-->>P: TickResult
         end
     else v outside the engine's range
-        E-->>P: FAILED_PRECONDITION + trailers<br/>sctracker-protocol-min / sctracker-protocol-max
+        E-->>P: FAILED_PRECONDITION + trailers<br/>gamecapture-protocol-min / gamecapture-protocol-max
         Note over P: ProtocolMismatchException — never retried
     end
 ```
@@ -71,7 +71,7 @@ Rules, both sides:
 
 ## Version policy
 
-One unsigned integer, `CaptureContracts/ProtocolVersion.cs` (`Current`, `Min`; both 1 today). It is
+One unsigned integer, `GameCapture.Contracts/ProtocolVersion.cs` (`Current`, `Min`; both 1 today). It is
 independent of the assembly/package version — this is the go-plugin model: artifact versions say what
 was built, the protocol version says what can talk to what.
 
