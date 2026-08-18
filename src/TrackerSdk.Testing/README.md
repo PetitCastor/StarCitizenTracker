@@ -14,6 +14,9 @@ drives the plugin through its real `TrackerPluginHost` path, which is what a plu
 dotnet add package SCTracker.Sdk.Testing
 ```
 
+> Not on nuget.org yet (TASK-16/17). Until then, reference
+> `src/TrackerSdk.Testing/TrackerSdk.Testing.csproj` from a clone.
+
 ## Unit test
 
 ```csharp

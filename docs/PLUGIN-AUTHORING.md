@@ -43,7 +43,8 @@ Once the template ships (TASK-18) this section is one command:
 dotnet new sctracker-plugin -n MyPlugin
 ```
 
-Until then, the manual setup is four files. A plugin is an ordinary console exe:
+Until then, the manual setup is five files — four here, plus a test project in
+[§7](#7-testing). A plugin is an ordinary console exe:
 
 ```powershell
 dotnet new console -n MyPlugin
@@ -188,10 +189,12 @@ public sealed class CounterPlugin : ITrackerPlugin
     }
 
     /// <summary>Frames this plugin never saw. A tracker watching for an edge can miss it
-    /// across a gap, so the next reading is treated as a fresh sighting, not a successor.</summary>
+    /// across a gap, so the next reading is re-reported as a fresh sighting rather than
+    /// assumed to be the successor of the last one. A reconnect is NOT in here: the host
+    /// deliberately keeps plugin state across one — see §6.</summary>
     public void OnSessionEvent(SessionEvent evt)
     {
-        if (evt is SessionEvent.TicksDropped or SessionEvent.Reconnecting)
+        if (evt is SessionEvent.TicksDropped)
             _last = null;
     }
 
@@ -251,6 +254,9 @@ down instead of the scale up.
 
 **Sizing a `Pixels` region.** Its BGRA payload must stay under `EngineDefaults.MaxPixelBytes` or the
 region fails with a per-ROI error — a colour probe should be a strip a few pixels tall, not a panel.
+The budget is checked on the **frame-space** rect, after the engine has scaled the reference rect to
+the actual capture resolution, so a probe that fits comfortably at 2560x1440 can still blow the cap
+on a 4K screen. Size it against the largest resolution the plugin should support, not the reference.
 Channel order is `EngineDefaults.PixelChannelOrder` (`BGRA`), and a red/blue swap produces perfectly
 plausible wrong answers, so write colour predicates against B, G, R in that order.
 
@@ -300,7 +306,7 @@ decision made once, instead of a check every reader has to remember:
 | Policy | Behaviour | When |
 | --- | --- | --- |
 | `AbortTick` (default) | The host skips the tick entirely. Nothing the plugin sees is ever degraded. | Almost always — especially any plugin holding state across ticks. |
-| `SkipErrored` | The tick is delivered, having logged which regions failed. The plugin is expected to check before trusting a reading. | Regions that are genuinely independent, where one failing should not blind the others. |
+| `SkipErrored` | The tick is delivered. The host notes which regions failed — through `LogVerbose`, so only under `--verbose`, and once per failure stretch rather than per tick — and the plugin is expected to check before trusting a reading. | Regions that are genuinely independent, where one failing should not blind the others. |
 | `PassThrough` | Delivered with no host-side filtering or logging. | Rare; you are taking over the whole decision. |
 
 Under `AbortTick` the host never calls `OnTickAsync` while a subscribed region is failed, so the
@@ -344,6 +350,43 @@ first read after reconnect is a re-sighting rather than a new event.
 
 Two layers, both in `TrackerSdk.Testing` — a real package, not `InternalsVisibleTo`, so it works
 from a plugin's own repository.
+
+The test project, on the manual path of [§2](#2-creating-the-project) — `dotnet new xunit -n
+MyPlugin.Tests`, then:
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <SCTrackerRepo Condition="'$(SCTrackerRepo)' == ''">C:\src\StarCitizenTracker</SCTrackerRepo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MyPlugin\MyPlugin.csproj" />
+    <!-- TickDataBuilder, FakePluginServices, ReplayHarness. Becomes a PackageReference on
+         SCTracker.Sdk.Testing once the packages ship (TASK-16/17). -->
+    <ProjectReference Include="$(SCTrackerRepo)\src\TrackerSdk.Testing\TrackerSdk.Testing.csproj" />
+  </ItemGroup>
+
+</Project>
+```
 
 **Unit: `TickDataBuilder` + `FakePluginServices`.** The builder produces a `TickData` the way the
 engine would have sent it (through the SDK's own wire mapping), so a tick that could never arrive on
@@ -401,7 +444,14 @@ the plugin through its real `TrackerPluginHost` path — public SDK plus an engi
 shortcuts. It is what a plugin's CI runs.
 
 ```csharp
-[Collection("ReplayParity")]   // a spawned engine owns a pipe and an OCR engine: never two at once
+/// A spawned engine owns a named pipe and a Windows OCR instance, so two of these must never
+/// run at once. The CollectionDefinition is what actually serializes them — the [Collection]
+/// attribute alone only groups; without DisableParallelization the group still runs beside
+/// every other collection in the assembly.
+[CollectionDefinition("ReplayParity", DisableParallelization = true)]
+public class ReplayParityCollection;
+
+[Collection("ReplayParity")]
 [Trait("Category", "Integration")]
 public class ReplayParityTests
 {
@@ -434,14 +484,19 @@ built) and otherwise finds the newest locally built `CaptureEngine.exe`. `Replay
 seconds, so a fired timeout means something is stuck.
 
 **Capturing the corpus** is a live, in-game step: run the engine with `--save-frames`, press the
-configured hotkey (`engine-config.json`'s `hotkey`, logged at startup) at each stage worth a frame,
-then copy the PNGs into `Fixtures/Replay/<name>/` and link them into the test output:
+configured hotkey (`engine-config.json`'s `hotkey`, default `Ctrl+Shift+F12`, logged at startup) at
+each stage worth a frame. Each press writes one full-frame PNG into the engine's own output
+directory — `engine-config.json`'s `outputDir`, `captures/` by default, resolved relative to the
+config file and printed as `Dumps:` on startup. Copy those PNGs into `Fixtures/Replay/<name>/` and
+copy them to the test output:
 
 ```xml
-<None Include="Fixtures\Replay\my-corpus\**\*.png"
-      Link="Fixtures\Replay\my-corpus\%(RecursiveDir)%(FileName)%(Extension)"
-      CopyToOutputDirectory="PreserveNewest" />
+<None Include="Fixtures\Replay\my-corpus\**\*.png" CopyToOutputDirectory="PreserveNewest" />
 ```
+
+(A corpus shared between several test projects lives outside any one of them and needs
+`Link=` to land at the same relative path in each output — that is the pattern this repository's
+own `tests/fixtures/corpus/` uses.)
 
 Frames are full captures — the engine applies ROI geometry itself — and play back in ordinal
 filename order, which the engine's timestamped names already satisfy. Full details, including why
@@ -477,9 +532,20 @@ the hook for anything that must resolve relative to the config file's own locati
 typically). Hand the loaded instance to the host so it does not re-read the file:
 
 ```csharp
-// Program.cs, for a plugin whose constructor takes its own settings
+// MyConfig.cs
+public sealed class MyConfig : PluginConfig
+{
+    public string LedgerPath { get; set; } = "ledger.csv";
+
+    // Runs on both the first-run and the read-back path. A bare relative path would otherwise
+    // resolve against the working directory, which is whatever shell launched the plugin.
+    protected override void AfterLoad(string configPath)
+        => LedgerPath = Path.GetFullPath(LedgerPath, Path.GetDirectoryName(configPath)!);
+}
+
+// Program.cs, for a plugin that takes its settings as a constructor argument
 var config = PluginConfig.Load<MyConfig>(Path.Combine(AppContext.BaseDirectory, "config.json"));
-return await TrackerPluginHost.RunAsync(new MyPlugin.CounterPlugin(config), args,
+return await TrackerPluginHost.RunAsync(new MyPlugin.LedgerPlugin(config), args,
     new PluginHostOptions { Config = config });
 ```
 

@@ -17,6 +17,9 @@ dotnet add package SCTracker.Contracts
 
 Usually transitively, via `SCTracker.Sdk`.
 
+> Not on nuget.org yet (TASK-16/17). Until then, reference
+> `src/CaptureContracts/CaptureContracts.csproj` from a clone.
+
 ## What is in it
 
 | Type | Role |

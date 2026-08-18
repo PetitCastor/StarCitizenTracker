@@ -67,8 +67,9 @@ plugin's `config.json`, or overridden on both with `--pipe <name>`.
 
 | Project | Purpose |
 | --- | --- |
+| `protos/capture.proto` | The wire contract itself — every RPC and message shape. Linked into `CaptureContracts` and guarded by `buf` in CI. |
 | `src/CaptureEngine` | Captures monitor frames, runs OCR, hosts the named-pipe gRPC service. The only Windows-TFM project. |
-| `src/CaptureContracts` | The Protocol Buffers contract and the pure types both sides share. |
+| `src/CaptureContracts` | Generated code for the contract above, plus the pure types both sides share. |
 | `src/TrackerSdk` | Plugin SDK: engine client, `ITrackerPlugin`, `TrackerPluginHost`. |
 | `src/TrackerSdk.Testing` | Testing companion: `TickDataBuilder`, `FakePluginServices`, `ReplayHarness`. |
 | `src/Plugins/MissionPlugin` | Tracks mission acceptance from the contract manager. |
@@ -91,6 +92,7 @@ Engine flags:
 | --- | --- |
 | `--pipe <name>` | Overrides the configured named-pipe name. |
 | `--monitor <index>` | Overrides which monitor is captured. |
+| `--ocr-lang <bcp47>` | Overrides the configured OCR language. |
 | `--replay <dir>` | Processes saved PNG frames instead of live monitor capture. |
 | `--save-frames` | Saves a full PNG frame whenever the configured manual hotkey is pressed. |
 | `--verbose` | Per-ROI logging on every scan. |

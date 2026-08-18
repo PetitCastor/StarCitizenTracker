@@ -15,7 +15,12 @@ Windows dependency, so a plugin and its tests build anywhere.
 dotnet add package SCTracker.Sdk
 ```
 
+> Not on nuget.org yet (TASK-16/17). Until then, reference
+> `src/TrackerSdk/TrackerSdk.csproj` from a clone.
+
 ## Minimal plugin
+
+`CounterPlugin.cs`:
 
 ```csharp
 using CaptureContracts;
@@ -38,8 +43,13 @@ public sealed class CounterPlugin : ITrackerPlugin
         return Task.CompletedTask;
     }
 }
+```
 
-// Program.cs
+`Program.cs` — the whole entry point:
+
+```csharp
+using TrackerSdk;
+
 return await TrackerPluginHost.RunAsync(new CounterPlugin(), args);
 ```
 
