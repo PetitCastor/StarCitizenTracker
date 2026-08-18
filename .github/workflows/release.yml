@@ -46,6 +46,13 @@ jobs:
       - name: Pack
         run: dotnet pack GameCapture.slnx --no-build -c Release -o packages
 
+      # Not part of GameCapture.slnx by design (TASK-18/19 — it must never join the main build,
+      # or its EnableDefaultItems=false untouched-content model breaks), so the slnx pack above
+      # never sees it. Packed separately, into the same output dir, so the push steps below pick
+      # it up alongside the other three package IDs without a change to their globs.
+      - name: Pack template
+        run: dotnet pack templates/GameCapture.Plugin.Template.csproj -c Release -o packages
+
       # MinVerVersionOverride is gone: unlike the old auto-increment trigger, the tag this release is
       # named for already exists (it's what triggered the run), so MinVer reads it directly off
       # history without help.

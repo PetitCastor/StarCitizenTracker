@@ -6,6 +6,10 @@ on:
   push:
     branches: [master]
 
+# No job here pushes, releases, or comments — read-only checkout is all any of them need.
+permissions:
+  contents: read
+
 jobs:
   build-test:
     name: Build & Test
@@ -109,6 +113,121 @@ jobs:
             exit 1
           fi
           echo "Plugin boundary clean: no engine/transport references under src/Plugins/."
+
+  # dotnet-template packages are the one asset `dotnet build` cannot see break: MSBuild compiles
+  # the template PROJECT's own (nonexistent, IncludeBuildOutput=false) output fine even after the
+  # C# content it ships goes stale — a dropped `using`, a renamed SDK API — because packing never
+  # compiles the Content items. Only instantiating the template and building/testing the result
+  # catches that. Packs the SDK trio + template from THIS commit (not the last release) into a
+  # scratch feed, so the guard tracks source, not history.
+  template-guard:
+    name: Template Guard
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Unshallow: MinVer needs tag history to version the scratch-feed packages below, same
+          # reason build-test's checkout does.
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # One project per `dotnet pack` call: despite its `[<PROJECT>...]` usage text, the CLI hands
+      # every path after the first straight to one MSBuild invocation, which rejects more than one
+      # project with MSB1008 "Only one project can be specified." Packed rather than built-then-
+      # `--no-build`: the template project doesn't sit in GameCapture.slnx (TASK-18 — it must never
+      # join the main build, or its EnableDefaultItems=false untouched-content model breaks), so
+      # nothing has built it yet.
+      - name: Pack SDK trio + template into a scratch feed
+        shell: pwsh
+        run: |
+          foreach ($proj in 'src/GameCapture.Contracts','src/GameCapture.Sdk','src/GameCapture.Sdk.Testing','templates/GameCapture.Plugin.Template.csproj') {
+            dotnet pack $proj -c Release -o feed
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Install template
+        shell: pwsh
+        run: |
+          $tmpl = Get-ChildItem feed/GameCapture.Plugin.Template.*.nupkg | Select-Object -First 1
+          if (-not $tmpl) { throw "GameCapture.Plugin.Template nupkg not found in feed — pack step above did not produce it" }
+          dotnet new install $tmpl.FullName
+
+      # This job always overrides the template's default SdkVersion (below), so it can't by itself
+      # catch the default going stale for a real consumer who omits --SdkVersion (the documented
+      # golden path, PLUGIN-AUTHORING.md §2). A mismatched major is EXPECTED right now — the
+      # default is "1.*" (locked in the TASK-18 spec, for after the v1.0.0 cut) while this repo's
+      # own train is still pre-1.0 — so this warns rather than fails: a hard assertion here would
+      # keep template-guard permanently red until TASK-21 tags v1.0.0, which is the wrong gate for
+      # a problem TASK-21's dry run already owns. It's a warning precisely so it stays visible
+      # every PR without blocking any of them.
+      - name: Warn if template default SdkVersion can't resolve against this train
+        shell: pwsh
+        run: |
+          $default = (Get-Content templates/gamecapture-plugin/.template.config/template.json -Raw | ConvertFrom-Json).symbols.SdkVersion.defaultValue
+          $sdk = Get-ChildItem feed -Filter 'GameCapture.Sdk.*.nupkg' | Where-Object { $_.Name -notmatch '^GameCapture\.Sdk\.Testing' } | Select-Object -First 1
+          if (-not $sdk) { throw "GameCapture.Sdk nupkg not found in feed — pack step above did not produce it" }
+          $packedMajor = ($sdk.BaseName -replace '^GameCapture\.Sdk\.', '').Split('.')[0]
+          $defaultMajor = $default.Split('.')[0]
+          if ($defaultMajor -ne $packedMajor) {
+            Write-Host "::warning::template's default SdkVersion '$default' (major $defaultMajor) does not resolve against this train's packed GameCapture.Sdk (major $packedMajor) — expected pre-v1.0.0, must be resolved by TASK-21 (dry run + v1.0.0)."
+          }
+
+      # The instantiated csproj wants the template's default SdkVersion, but this feed only holds
+      # an untagged commit's MinVer prerelease (e.g. 0.12.1-alpha.0.20) — a stable float default
+      # never matches a prerelease, so instantiating with the default would restore-fail against a
+      # feed that has nothing else. Reading the version back off the packed GameCapture.Sdk nupkg's
+      # own filename and passing it as --SdkVersion (the symbol
+      # templates/gamecapture-plugin/.template.config/template.json defines for exactly this) pins
+      # the instantiated project to what this job just packed. Filtered off GameCapture.Sdk.Testing,
+      # which the same glob would otherwise also match.
+      - name: Instantiate GuardPlugin
+        shell: pwsh
+        run: |
+          $sdk = Get-ChildItem feed -Filter 'GameCapture.Sdk.*.nupkg' | Where-Object { $_.Name -notmatch '^GameCapture\.Sdk\.Testing' } | Select-Object -First 1
+          if (-not $sdk) { throw "GameCapture.Sdk nupkg not found in feed — pack step above did not produce it" }
+          $version = $sdk.BaseName -replace '^GameCapture\.Sdk\.', ''
+          dotnet new gamecapture-plugin -n GuardPlugin -o "${{ runner.temp }}/GuardPlugin" --SdkVersion $version
+
+      # A fresh nuget.config scoped to the instantiated project directory: `dotnet nuget add source
+      # --configfile` requires the file to already exist, and the instantiated project must resolve
+      # GameCapture.Sdk/.Contracts/.Sdk.Testing from this job's scratch feed rather than whatever a
+      # real prerelease looks like on nuget.org (which may not have one at the pinned version, or
+      # may silently pick up the wrong one). Lowercase filename matches what `dotnet new nugetconfig`
+      # actually writes — case only goes unnoticed on windows-latest's case-insensitive filesystem.
+      - name: Point instantiated project at the scratch feed
+        shell: pwsh
+        run: |
+          $out = "${{ runner.temp }}/GuardPlugin"
+          dotnet new nugetconfig -o $out
+          dotnet nuget add source "$PWD/feed" --name template-guard-feed --configfile "$out/nuget.config"
+
+      # Content items a plugin never compiles (config.json, README.md, .gitignore, the shipped CI
+      # workflow) would still silently vanish from an instantiated project if NoDefaultExcludes
+      # (templates/GameCapture.Plugin.Template.csproj) or the Content glob ever regressed — nothing
+      # in a build+test catches a missing file that nothing references. Asserted directly instead.
+      - name: Assert template emitted its content
+        shell: pwsh
+        run: |
+          $out = "${{ runner.temp }}/GuardPlugin"
+          foreach ($f in 'GuardPlugin.csproj','Program.cs','Rois.cs','GuardPlugin.cs','config.json',
+                         'README.md','.gitignore','.github/workflows/ci.yml','tests/GuardPlugin.Tests.csproj') {
+            if (-not (Test-Path (Join-Path $out $f))) { throw "template did not emit $f" }
+          }
+          $null = Get-Content (Join-Path $out 'config.json') -Raw | ConvertFrom-Json
+
+      - name: Build + test instantiated plugin
+        shell: pwsh
+        run: |
+          $out = "${{ runner.temp }}/GuardPlugin"
+          dotnet build "$out/GuardPlugin.csproj" -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test "$out/tests/GuardPlugin.Tests.csproj" -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   # The wire contract is the one thing in this repo that two separately-shipped processes both
   # depend on, and `dotnet build` cannot see a break in it: regenerating C# from a proto that

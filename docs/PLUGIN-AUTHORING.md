@@ -17,6 +17,7 @@ and tested outside this repository against the real SDK — see [§8](#8-cold-st
 - [7. Testing](#7-testing)
 - [8. Cold-start checklist](#8-cold-start-checklist)
 - [9. Config, CLI, and compatibility](#9-config-cli-and-compatibility)
+- [Appendix: manual project setup](#appendix-manual-project-setup)
 
 ## 1. Prerequisites
 
@@ -29,81 +30,52 @@ and tested outside this repository against the real SDK — see [§8](#8-cold-st
   `dotnet build GameCapture.slnx`. Running the engine live needs Windows 10/11 with an OCR
   language pack installed; replaying a corpus needs the same, but no game. Note where the exe lands
   — parity tests need `GAMECAPTURE_ENGINE_PATH` pointed at it ([§7](#7-testing)).
-- **A clone of this repository** until the SDK is on nuget.org (TASK-16/17). The plugin references
-  `GameCapture.Sdk` and `GameCapture.Contracts` by project path today; the package IDs it will reference
-  afterwards are `GameCapture.Sdk`, `GameCapture.Contracts`, and `GameCapture.Sdk.Testing`.
+- **A clone of this repository, or a local pack of it** until the SDK is on nuget.org (TASK-21/22).
+  The template ([§2](#2-creating-the-project)) references `GameCapture.Sdk`, `GameCapture.Contracts`,
+  and `GameCapture.Sdk.Testing` by package ID already — a local feed (or, later, nuget.org) supplies
+  them either way.
 
 Writing and unit-testing a plugin needs none of the above beyond the SDK — no Windows OCR, no game,
 no engine process. That is the point of the plain-`net10.0` boundary.
 
 ## 2. Creating the project
 
-Once the template ships (TASK-18) this section is one command:
-
 ```powershell
+# once GameCapture.Plugin.Template has a stable release on nuget.org (TASK-21/22):
+dotnet new install GameCapture.Plugin.Template
 dotnet new gamecapture-plugin -n MyPlugin
 ```
 
-Until then, the manual setup is five files — three here, two in [§3](#3-anatomy-of-a-plugin) — plus
-a test project in [§7](#7-testing). A plugin is an ordinary console exe:
+This scaffolds the whole project: `MyPlugin.csproj`, `Program.cs`, `Rois.cs`, `MyPlugin.cs` (the
+class to rename and fill in — [§3](#3-anatomy-of-a-plugin) picks up from here), `config.json`, a
+`tests/` project wired against `GameCapture.Sdk.Testing` ([§7](#7-testing)), and a CI workflow stub.
+`dotnet new gamecapture-plugin -h` lists every symbol, including `--SdkVersion` for pinning a
+specific `GameCapture.Sdk`/`.Contracts`/`.Sdk.Testing` version.
+
+Until then, install and instantiate from a local feed instead — pack the four projects, add the feed
+as a source scoped to the new project (not the machine-wide config `dotnet nuget add source` mutates
+without `--configfile`), and pin the instantiated project at that exact prerelease with
+`--SdkVersion`:
 
 ```powershell
-dotnet new console -n MyPlugin
+dotnet pack src/GameCapture.Contracts -c Release -o feed
+dotnet pack src/GameCapture.Sdk -c Release -o feed
+dotnet pack src/GameCapture.Sdk.Testing -c Release -o feed
+dotnet pack templates/GameCapture.Plugin.Template.csproj -c Release -o feed
+
+dotnet new install feed/GameCapture.Plugin.Template.*.nupkg
+dotnet new gamecapture-plugin -n MyPlugin --SdkVersion <version from feed/GameCapture.Sdk.*.nupkg>
+
+dotnet new nugetconfig -o MyPlugin
+dotnet nuget add source <full path to feed> --name local --configfile MyPlugin/nuget.config
 ```
 
-`MyPlugin.csproj` — plain `net10.0`, plus references to the SDK and the contracts:
+`.github/workflows/ci.yml`'s `template-guard` job runs this same recipe on every PR (the anti-rot
+guard for the template itself: instantiate, build, test); read it for the working detail, including
+the `GameCapture.Sdk.Testing` name collision to filter out of the `GameCapture.Sdk.*.nupkg` glob.
 
-```xml
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <!-- Plain net10.0. A plugin parses text; it never touches the capture stack, so the Windows
-       TFM the engine needs must not appear here. -->
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <RootNamespace>MyPlugin</RootNamespace>
-  </PropertyGroup>
-
-  <!-- Until the SDK is on nuget.org (TASK-16/17), reference it out of a clone of the engine
-       repo. $(GameCaptureRepo) is the clone root; set it here or pass -p:GameCaptureRepo=... -->
-  <PropertyGroup>
-    <GameCaptureRepo Condition="'$(GameCaptureRepo)' == ''">C:\src\StarCitizenTracker</GameCaptureRepo>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="$(GameCaptureRepo)\src\GameCapture.Sdk\GameCapture.Sdk.csproj" />
-    <ProjectReference Include="$(GameCaptureRepo)\src\GameCapture.Contracts\GameCapture.Contracts.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Update="config.json" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
-</Project>
-```
-
-`config.json` — the two settings every plugin has (see [§9](#9-config-cli-and-compatibility)); the
-pipe name must match the engine's:
-
-```json
-{
-  "pipeName": "GameCapture.Engine",
-  "saveDebugFrames": false
-}
-```
-
-`Program.cs` — the whole entry point. Everything else the two shipped plugins used to carry here
-(argument parsing, the connect/reconnect loop, Ctrl+C, the summary) lives in the host now:
-
-```csharp
-using GameCapture.Sdk;
-
-return await GameCapturePluginHost.RunAsync(new MyPlugin.CounterPlugin(), args);
-```
-
-`CounterPlugin.cs` and `Rois.cs` are the next section.
+Setting the project up by hand — no template package available — is
+[Appendix: manual project setup](#appendix-manual-project-setup).
 
 ## 3. Anatomy of a plugin
 
@@ -362,42 +334,10 @@ first read after reconnect is a re-sighting rather than a new event.
 Two layers, both in `GameCapture.Sdk.Testing` — a real package, not `InternalsVisibleTo`, so it works
 from a plugin's own repository.
 
-The test project, on the manual path of [§2](#2-creating-the-project) — `dotnet new xunit -n
-MyPlugin.Tests`, then:
-
-```xml
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <IsPackable>false</IsPackable>
-    <IsTestProject>true</IsTestProject>
-  </PropertyGroup>
-
-  <PropertyGroup>
-    <GameCaptureRepo Condition="'$(GameCaptureRepo)' == ''">C:\src\StarCitizenTracker</GameCaptureRepo>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
-    <PackageReference Include="xunit" Version="2.9.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\MyPlugin\MyPlugin.csproj" />
-    <!-- TickDataBuilder, FakePluginServices, ReplayHarness. Becomes a PackageReference on
-         GameCapture.Sdk.Testing once the packages ship (TASK-16/17). -->
-    <ProjectReference Include="$(GameCaptureRepo)\src\GameCapture.Sdk.Testing\GameCapture.Sdk.Testing.csproj" />
-  </ItemGroup>
-
-</Project>
-```
+The template ([§2](#2-creating-the-project)) scaffolds `tests/MyPlugin.Tests.csproj` already wired
+with `Microsoft.NET.Test.Sdk`, `xunit`, and a `PackageReference` on `GameCapture.Sdk.Testing` —
+nothing to set up by hand. Building a test project from scratch (no template available) is in
+[Appendix: manual project setup](#appendix-manual-project-setup).
 
 **Unit: `TickDataBuilder` + `FakePluginServices`.** The builder produces a `TickData` the way the
 engine would have sent it (through the SDK's own wire mapping), so a tick that could never arrive on
@@ -528,13 +468,12 @@ replay never drops a tick, are in [`REPLAY.md`](REPLAY.md).
 Verified against a project built outside this repository:
 
 ```powershell
-dotnet new console -n MyPlugin              # then edit csproj per §2, add the files from §3
-dotnet new xunit   -n MyPlugin.Tests        # then edit csproj per §7
-dotnet build MyPlugin -c Release            # SDK + contracts build from the clone
+dotnet new gamecapture-plugin -n MyPlugin   # §2 — then rename/fill in MyPlugin.cs per §3
+dotnet build MyPlugin -c Release            # SDK + contracts restore from the (local or nuget.org) feed
 
 # Unit tests only. The parity test from §7 spawns a real engine, so it is filtered out
 # here — run it once GAMECAPTURE_ENGINE_PATH and a corpus are in place.
-dotnet test MyPlugin.Tests -c Release --filter "Category!=Integration"
+dotnet test MyPlugin\tests\MyPlugin.Tests.csproj -c Release --filter "Category!=Integration"
 ```
 
 Then, with an engine running:
@@ -600,6 +539,108 @@ protocol bump, and what may not — are in [`PROTOCOL.md`](PROTOCOL.md#version-p
 TASK-20 lands, `COMPATIBILITY.md`. A plugin that stays on the SDK's own types (never a generated
 proto type, never `Grpc.*`) is the one that survives a wire change; CI greps for exactly that
 (`.github/workflows/ci.yml`, "Plugin boundary grep gate").
+
+## Appendix: manual project setup
+
+Only needed when `GameCapture.Plugin.Template` cannot be installed. Five files — three here, two in
+[§3](#3-anatomy-of-a-plugin) — plus a test project.
+
+A plugin is an ordinary console exe:
+
+```powershell
+dotnet new console -n MyPlugin
+```
+
+`MyPlugin.csproj` — plain `net10.0`, plus references to the SDK and the contracts:
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Plain net10.0. A plugin parses text; it never touches the capture stack, so the Windows
+       TFM the engine needs must not appear here. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>MyPlugin</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Until the SDK is on nuget.org (TASK-21/22), reference it out of a clone of the engine
+       repo, or a local pack — see §2. $(GameCaptureRepo) is the clone root; set it here or
+       pass -p:GameCaptureRepo=... -->
+  <PropertyGroup>
+    <GameCaptureRepo Condition="'$(GameCaptureRepo)' == ''">C:\src\StarCitizenTracker</GameCaptureRepo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(GameCaptureRepo)\src\GameCapture.Sdk\GameCapture.Sdk.csproj" />
+    <ProjectReference Include="$(GameCaptureRepo)\src\GameCapture.Contracts\GameCapture.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="config.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
+```
+
+`config.json` — the two settings every plugin has (see [§9](#9-config-cli-and-compatibility)); the
+pipe name must match the engine's:
+
+```json
+{
+  "pipeName": "GameCapture.Engine",
+  "saveDebugFrames": false
+}
+```
+
+`Program.cs` — the whole entry point. Everything else the two shipped plugins used to carry here
+(argument parsing, the connect/reconnect loop, Ctrl+C, the summary) lives in the host now:
+
+```csharp
+using GameCapture.Sdk;
+
+return await GameCapturePluginHost.RunAsync(new MyPlugin.CounterPlugin(), args);
+```
+
+`CounterPlugin.cs` and `Rois.cs` are [§3](#3-anatomy-of-a-plugin).
+
+The test project — `dotnet new xunit -n MyPlugin.Tests`, then:
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <GameCaptureRepo Condition="'$(GameCaptureRepo)' == ''">C:\src\StarCitizenTracker</GameCaptureRepo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MyPlugin\MyPlugin.csproj" />
+    <!-- TickDataBuilder, FakePluginServices, ReplayHarness. Becomes a PackageReference on
+         GameCapture.Sdk.Testing once the packages ship (TASK-21/22). -->
+    <ProjectReference Include="$(GameCaptureRepo)\src\GameCapture.Sdk.Testing\GameCapture.Sdk.Testing.csproj" />
+  </ItemGroup>
+
+</Project>
+```
 
 ## See also
 
