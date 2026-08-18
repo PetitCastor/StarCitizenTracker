@@ -649,3 +649,5 @@ The test project — `dotnet new xunit -n MyPlugin.Tests`, then:
 - [`ENGINE-SERVICES.md`](ENGINE-SERVICES.md) — every RPC, budget, and constant the engine offers.
 - [`PROTOCOL.md`](PROTOCOL.md) — transport, handshake, version policy, coordinate spaces.
 - [`REPLAY.md`](REPLAY.md) — corpus layout, capture, and replay.
+- [`COMPATIBILITY.md`](COMPATIBILITY.md) — protocol/engine/SDK version matrix and the rules for
+  bumping each.

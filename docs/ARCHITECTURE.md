@@ -84,3 +84,5 @@ and not part of the repo history — the constraints below are restated in full 
   runs one against a real plugin.
 - [`docs/PLUGIN-AUTHORING.md`](PLUGIN-AUTHORING.md) — how to write a new `IGameCapturePlugin` from
   scratch: project setup, the tick surface, ROI calibration, error policy, and testing.
+- [`docs/COMPATIBILITY.md`](COMPATIBILITY.md) — protocol/engine/SDK version matrix and the rules for
+  bumping each.

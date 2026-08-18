@@ -10,7 +10,7 @@ bumping each of the three version axes.
 
 | Protocol | Engine | SDK / Contracts / Sdk.Testing | Notes |
 | --- | --- | --- | --- |
-| 1 | v1.0.0+ | 1.0.0+ | First published set. Tagged from `gamecapture-engine` (TASK-22 step 7), not the mono-repo — see `00-OVERVIEW.md`. |
+| 1 | v1.0.0+ | 1.0.0+ | First published set, tagged from `gamecapture-engine` itself — not this mono-repo, which never publishes a `v1.0.0`. |
 
 A new row is added whenever protocol `Min` or `Current` moves (see below); package version bumps
 that don't touch the protocol integer extend the existing row's floor instead of adding one.
