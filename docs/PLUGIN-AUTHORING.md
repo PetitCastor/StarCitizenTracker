@@ -535,8 +535,9 @@ owns the lifetime), `RecordSink` (tee every emitted record — how the replay ha
 negotiated down to what both sides speak; an engine that refuses the version ends the run with
 `StreamEndReason.Faulted` and exit 1 rather than retrying, because dialling again cannot fix it. That
 version is distinct from any package or release version. The rules — what may change without a
-protocol bump, and what may not — are in [`PROTOCOL.md`](PROTOCOL.md#version-policy) and, once
-TASK-20 lands, `COMPATIBILITY.md`. A plugin that stays on the SDK's own types (never a generated
+protocol bump, and what may not — are in [`PROTOCOL.md`](PROTOCOL.md#version-policy); the released
+matrix of which protocol/engine/SDK versions actually shipped together is in
+[`COMPATIBILITY.md`](COMPATIBILITY.md). A plugin that stays on the SDK's own types (never a generated
 proto type, never `Grpc.*`) is the one that survives a wire change; CI greps for exactly that
 (`.github/workflows/ci.yml`, "Plugin boundary grep gate").
 
