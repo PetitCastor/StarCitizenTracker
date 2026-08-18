@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build-test:
+    name: Build & Test
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # The test project ProjectReferences the plugin, so building/restoring it also builds the
+      # plugin — no separate steps needed and no solution file required.
+      - name: Restore
+        run: dotnet restore tests/MyCapturePlugin.Tests.csproj
+
+      - name: Build
+        run: dotnet build tests/MyCapturePlugin.Tests.csproj --no-restore -c Release
+
+      # The replay-parity smoke test is tagged Integration and Skip-attributed until a corpus and
+      # GAMECAPTURE_ENGINE_PATH exist (see README.md) — excluded here so this job needs no engine.
+      - name: Test
+        run: dotnet test tests/MyCapturePlugin.Tests.csproj --no-build -c Release --filter "Category!=Integration"

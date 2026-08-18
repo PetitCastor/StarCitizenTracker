@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "PetitCastor",
+  "classifications": ["GameCapture", "Plugin"],
+  "identity": "GameCapture.Plugin.Template",
+  "name": "GameCapture plugin",
+  "shortName": "gamecapture-plugin",
+  "sourceName": "MyCapturePlugin",
+  "preferNameDirectory": true,
+  "symbols": {
+    "SdkVersion": { "type": "parameter", "datatype": "string",
+                    "defaultValue": "1.*", "replaces": "SDK_VERSION" }
+  }
+}
