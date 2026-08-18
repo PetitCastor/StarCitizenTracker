@@ -48,8 +48,9 @@ see `Program.cs`'s check) — a corpus is captured live, then replayed offline a
   replay-parity test in this repo is built on now (TASK-13).
 
 See [`docs/ENGINE-SERVICES.md`](ENGINE-SERVICES.md#replay-mode) for the engine's replay-mode flags
-and determinism guarantees, and [`docs/PROTOCOL.md`](PROTOCOL.md#backpressure-and-stream-end) for
-the replay-vs-live backpressure policy.
+and determinism guarantees, [`docs/PROTOCOL.md`](PROTOCOL.md#backpressure-and-stream-end) for
+the replay-vs-live backpressure policy, and
+[`docs/PLUGIN-AUTHORING.md`](PLUGIN-AUTHORING.md#7-testing) for writing the parity test itself.
 
 ## Backpressure: replay vs. live
 

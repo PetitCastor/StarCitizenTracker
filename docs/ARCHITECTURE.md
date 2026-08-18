@@ -82,4 +82,5 @@ and not part of the repo history — the constraints below are restated in full 
   does, every budget and constant, replay mode, and the hotkey/`--save-frames` path.
 - [`docs/REPLAY.md`](REPLAY.md) — corpus layout, capturing one in-game, and how `ReplayHarness`
   runs one against a real plugin.
-- `docs/PLUGIN-AUTHORING.md` (planned, TASK-15) — how to write a new `ITrackerPlugin` from scratch.
+- [`docs/PLUGIN-AUTHORING.md`](PLUGIN-AUTHORING.md) — how to write a new `ITrackerPlugin` from
+  scratch: project setup, the tick surface, ROI calibration, error policy, and testing.
