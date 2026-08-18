@@ -47,6 +47,10 @@ see `Program.cs`'s check) — a corpus is captured live, then replayed offline a
   (`StreamEndReason`, exit code). This is what a plugin's own CI uses for parity, and what every
   replay-parity test in this repo is built on now (TASK-13).
 
+See [`docs/ENGINE-SERVICES.md`](ENGINE-SERVICES.md#replay-mode) for the engine's replay-mode flags
+and determinism guarantees, and [`docs/PROTOCOL.md`](PROTOCOL.md#backpressure-and-stream-end) for
+the replay-vs-live backpressure policy.
+
 ## Backpressure: replay vs. live
 
 The engine's per-client channel picks its full-mode based on whether the session is a replay
