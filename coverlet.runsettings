@@ -35,7 +35,7 @@
   read off the aggregate.
 
   Usage (from the repo root):
-    dotnet test StarCitizenTracker.slnx --settings coverlet.runsettings --collect:"XPlat Code Coverage"
+    dotnet test GameCapture.slnx --settings coverlet.runsettings --collect:"XPlat Code Coverage"
 -->
 <RunSettings>
   <DataCollectionRunSettings>

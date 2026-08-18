@@ -1,6 +1,6 @@
-using CaptureContracts;
-using TrackerSdk;
-using TrackerSdk.Testing;
+using GameCapture.Contracts;
+using GameCapture.Sdk;
+using GameCapture.Sdk.Testing;
 using Xunit;
 
 namespace MissionPlugin.Tests;
@@ -47,7 +47,7 @@ public class MissionPluginTickTests
 
         var record = Assert.Single(services.Emitted);
         Assert.Equal(TriggerKind.Auto, record.Trigger);
-        Assert.Equal("missions", record.Tracker);
+        Assert.Equal("missions", record.Plugin);
         Assert.Equal("MISSION: Deliver crates", record.RawText);
     }
 

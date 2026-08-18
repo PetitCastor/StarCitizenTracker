@@ -1,5 +1,5 @@
 {
-  "pipeName": "StarCitizenTracker.CaptureEngine",
+  "pipeName": "GameCapture.Engine",
   "ledgerEnabled": true,
   "ledgerPath": "",
   "saveDebugFrames": false

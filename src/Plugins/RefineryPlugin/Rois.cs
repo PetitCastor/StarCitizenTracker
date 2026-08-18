@@ -1,5 +1,5 @@
-using CaptureContracts;
-using TrackerSdk;
+using GameCapture.Contracts;
+using GameCapture.Sdk;
 
 namespace RefineryPlugin;
 

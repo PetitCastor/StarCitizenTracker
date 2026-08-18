@@ -1,6 +1,6 @@
 using RefineryPlugin.Orders;
-using TrackerSdk;
-using TrackerSdk.Testing;
+using GameCapture.Sdk;
+using GameCapture.Sdk.Testing;
 using Xunit;
 using static RefineryPlugin.Tests.RefineryTicks;
 

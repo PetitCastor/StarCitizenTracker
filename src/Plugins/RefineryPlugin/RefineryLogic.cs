@@ -1,7 +1,7 @@
 using System.Text;
-using CaptureContracts;
+using GameCapture.Contracts;
 using RefineryPlugin.Orders;
-using TrackerSdk;
+using GameCapture.Sdk;
 
 namespace RefineryPlugin;
 
@@ -25,7 +25,7 @@ namespace RefineryPlugin;
 /// </remarks>
 public sealed class RefineryLogic
 {
-    /// <summary>Client name on the Track stream and the <see cref="TrackerRecord.Tracker"/> tag.</summary>
+    /// <summary>Client name on the Track stream and the <see cref="CaptureRecord.Plugin"/> tag.</summary>
     public const string Name = "refinery";
 
     /// <summary>Yield checksum slack: per-row cSCU are rounded, so the printed total can differ from
@@ -156,7 +156,7 @@ public sealed class RefineryLogic
             var submit = _ledger.Observe(BuildSetupObservation());
             _lastOrder = submit.Merged;
             if (submit.Changed)
-                _services.Emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(submit.Merged)));
+                _services.Emit(new CaptureRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(submit.Merged)));
         }
 
         var step = _machine.Step(new PanelObservation(state, modalVisible));
@@ -303,7 +303,7 @@ public sealed class RefineryLogic
 
         if (result.Changed && orderState == OrderState.Ready)
         {
-            _services.Emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(result.Merged)));
+            _services.Emit(new CaptureRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(result.Merged)));
             await SaveDebugAsync(ct);
         }
     }
@@ -328,7 +328,7 @@ public sealed class RefineryLogic
         _lastOrder = result.Merged;
 
         if (result.Changed)
-            _services.Emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(result.Merged)));
+            _services.Emit(new CaptureRecord(DateTime.Now, Name, TriggerKind.Auto, RenderOrder(result.Merged)));
     }
 
     /// <summary>Hotkey escape hatch. Synchronous where the monolith's was not: everything it reads is
@@ -341,7 +341,7 @@ public sealed class RefineryLogic
         {
             var result = _ledger.Observe(BuildSetupObservation());
             _lastOrder = result.Merged;
-            _services.Emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Manual, RenderOrder(result.Merged)));
+            _services.Emit(new CaptureRecord(DateTime.Now, Name, TriggerKind.Manual, RenderOrder(result.Merged)));
             return;
         }
 
@@ -349,7 +349,7 @@ public sealed class RefineryLogic
         // subscription still carries the plain text, so the setup list answers Text() too.
         var list = TextOf(tick, Rois.SetupList.Id);
         var footer = TextOf(tick, Rois.Footer.Id);
-        _services.Emit(new TrackerRecord(DateTime.Now, Name, TriggerKind.Manual,
+        _services.Emit(new CaptureRecord(DateTime.Now, Name, TriggerKind.Manual,
             $"[raw list ROI]\r\n{list}\r\n[raw footer ROI]\r\n{footer}"));
     }
 
@@ -366,7 +366,7 @@ public sealed class RefineryLogic
     /// Whether the engine flagged this ROI as failed on this tick. An errored ROI is not a blank one:
     /// <c>Text()</c> answers empty either way, and every caller here has to treat "could not read" as
     /// "do nothing", never as an observation. Reporting the failure — once per change, not per tick —
-    /// is the host's job now (<see cref="TrackerSdk.RoiErrorPolicy.SkipErrored"/>'s latch), so this is
+    /// is the host's job now (<see cref="GameCapture.Sdk.RoiErrorPolicy.SkipErrored"/>'s latch), so this is
     /// a pure predicate.
     /// </summary>
     private static bool RoiFailed(TickData tick, RoiId roiId)

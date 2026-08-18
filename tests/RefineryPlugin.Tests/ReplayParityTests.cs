@@ -1,7 +1,7 @@
 using System.Text;
 using RefineryPlugin.Orders;
-using TrackerSdk;
-using TrackerSdk.Testing;
+using GameCapture.Sdk;
+using GameCapture.Sdk.Testing;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -23,7 +23,7 @@ public class ReplayParityCollection;
 /// the wire mapping, the scan loop's tick construction, the ported logic) fails here.
 /// </summary>
 /// <remarks>
-/// Runs through <see cref="ReplayHarness"/> — a real, separately spawned <c>CaptureEngine.exe</c> —
+/// Runs through <see cref="ReplayHarness"/> — a real, separately spawned <c>GameCapture.Engine.exe</c> —
 /// rather than hosting the engine in-proc: this suite has to survive the repo split (TASK-13), where
 /// this project can no longer take a <c>ProjectReference</c> on the engine, only on the SDK and its
 /// testing companion. Real Windows OCR under the hood, so this is tagged Integration.
@@ -79,7 +79,7 @@ public class ReplayParityTests(ITestOutputHelper output)
     /// ledger.
     /// </summary>
     /// <remarks>
-    /// Drives the plugin through the public <see cref="TrackerPluginHost.RunAsync"/> surface — the
+    /// Drives the plugin through the public <see cref="GameCapturePluginHost.RunAsync"/> surface — the
     /// same entry point Program uses — via <see cref="ReplayHarness"/>, rather than reaching into
     /// RefineryLogic over an InternalsVisibleTo grant (killed in TASK-11). The ledger the host's
     /// plugin opens is captured through <see cref="RefineryPlugin"/>'s test seam. An explicit

@@ -1,5 +1,5 @@
 using RefineryPlugin;
-using TrackerSdk;
+using GameCapture.Sdk;
 
 // The whole lifecycle — connect, subscribe, feed ticks, reconnect, summarise — is the host's; this
 // process only supplies the plugin, its config, and the one flag the host does not know about.
@@ -43,4 +43,4 @@ var options = new PluginHostOptions
     },
 };
 
-return await TrackerPluginHost.RunAsync(new RefineryPlugin.RefineryPlugin(config, () => ledgerOverride), args, options);
+return await GameCapturePluginHost.RunAsync(new RefineryPlugin.RefineryPlugin(config, () => ledgerOverride), args, options);

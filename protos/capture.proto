@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package capture;
 
-option csharp_namespace = "CaptureContracts.Proto";
+option csharp_namespace = "GameCapture.Contracts.Proto";
 
 // Game-agnostic screen-capture + OCR engine. Plugins subscribe ROI sets and receive one
 // TickResult per scanned frame; everything a plugin needs for one decision arrives in one
@@ -37,7 +37,7 @@ message Rect {
   uint32 height = 4;
 }
 
-// Rectangle in upscaled-crop space; mirrors CaptureContracts.RectF.
+// Rectangle in upscaled-crop space; mirrors GameCapture.Contracts.RectF.
 message RectF {
   double x = 1;
   double y = 2;
@@ -58,7 +58,7 @@ message RoiSpec {
   Rect rect = 2;   // REFERENCE space
 
   // OCR upscale factor; ignored for ROI_MODE_PIXELS. proto3 cannot tell "unset" from 0.0, so
-  // 0 (or any value <= 0) means "engine default", i.e. 1.0 — see CaptureContracts.WireLimits.
+  // 0 (or any value <= 0) means "engine default", i.e. 1.0 — see GameCapture.Contracts.WireLimits.
   // NormalizeOcrScale. The engine normalises before capturing and reports what it applied in
   // RoiResult.effective_scale, which is therefore always > 0 on a successful result.
   double scale = 3;
@@ -132,7 +132,7 @@ message RoiResult {
 
   // Per-ROI failure (e.g. ROI outside the frame); other ROIs in the tick are unaffected.
   // Clients MUST check this first: on an error result every payload field above is unset, and
-  // empty text is NOT the same as a successfully read empty panel. CaptureContracts.
+  // empty text is NOT the same as a successfully read empty panel. GameCapture.Contracts.
   // ProtoMapping throws rather than hand back a degraded result.
   bool error = 10;
   string error_message = 11;

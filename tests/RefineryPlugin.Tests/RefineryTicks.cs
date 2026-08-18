@@ -1,6 +1,6 @@
-using CaptureContracts;
-using TrackerSdk;
-using TrackerSdk.Testing;
+using GameCapture.Contracts;
+using GameCapture.Sdk;
+using GameCapture.Sdk.Testing;
 
 namespace RefineryPlugin.Tests;
 

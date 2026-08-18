@@ -1,5 +1,5 @@
 using RefineryPlugin.Orders;
-using TrackerSdk;
+using GameCapture.Sdk;
 
 // The class below shares its name with this namespace, which shadows the static Rois holder for any
 // unqualified reference inside it (member lookup wins over enclosing-namespace lookup) — this alias
@@ -14,9 +14,9 @@ namespace RefineryPlugin;
 /// shell over <see cref="RefineryLogic"/>: it owns the order ledger — opened on the first tick and
 /// kept across reconnects — and hands each tick to the logic, which does the parsing, the
 /// scroll-stitching and the state machine. Everything the split isolates (connecting, subscribing,
-/// reconnecting, cancelling, summarising) is <see cref="TrackerPluginHost"/>'s.
+/// reconnecting, cancelling, summarising) is <see cref="GameCapturePluginHost"/>'s.
 /// </summary>
-public sealed class RefineryPlugin : ITrackerPlugin
+public sealed class RefineryPlugin : IGameCapturePlugin
 {
     private readonly RefineryConfig _config;
     private readonly Func<string?>? _ledgerOverride;

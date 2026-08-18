@@ -1,6 +1,6 @@
 using RefineryPlugin.Orders;
-using TrackerSdk;
-using TrackerSdk.Testing;
+using GameCapture.Sdk;
+using GameCapture.Sdk.Testing;
 using Xunit;
 using static RefineryPlugin.Tests.RefineryTicks;
 
@@ -116,7 +116,7 @@ public class RefineryLogicWalkTests : IDisposable
         // Three console captures: the SETUP submit, the order turning Ready, and the collect.
         Assert.Equal(3, _services.Emitted.Count);
         Assert.All(_services.Emitted, r => Assert.Equal(TriggerKind.Auto, r.Trigger));
-        Assert.All(_services.Emitted, r => Assert.Equal("refinery", r.Tracker));
+        Assert.All(_services.Emitted, r => Assert.Equal("refinery", r.Plugin));
     }
 
     /// <summary>

@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Windows TFM copied from the monolith: WGC capture, Windows OCR and the low-level
+       keyboard hook all stay on this side of the boundary. Plugins are plain net10.0. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>GameCapture.Engine</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Hosts gRPC on Kestrel without switching to the Web SDK, which would drag in the whole
+       web app model (static files, routing conventions) for one named-pipe endpoint. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Contracts only. The engine deliberately does NOT reference GameCapture.Sdk: the dependency arrow
+       runs SDK -> contracts, and after the repo split (SOW-10/11) the SDK is a package published
+       FROM here. That is why Core/ConsoleSink.cs is a fork rather than a shared type. -->
+  <ItemGroup>
+    <ProjectReference Include="..\GameCapture.Contracts\GameCapture.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="engine-config.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="GameCapture.Engine.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore" Version="2.83.0" />
+    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="10.0.11" />
+  </ItemGroup>
+
+</Project>

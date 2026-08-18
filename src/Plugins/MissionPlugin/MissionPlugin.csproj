@@ -9,8 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\CaptureContracts\CaptureContracts.csproj" />
-    <ProjectReference Include="..\..\TrackerSdk\TrackerSdk.csproj" />
+    <ProjectReference Include="..\..\GameCapture.Contracts\GameCapture.Contracts.csproj" />
+    <ProjectReference Include="..\..\GameCapture.Sdk\GameCapture.Sdk.csproj" />
   </ItemGroup>
 
   <ItemGroup>
