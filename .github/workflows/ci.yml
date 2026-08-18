@@ -38,6 +38,63 @@ jobs:
       - name: Test
         run: dotnet test GameCapture.slnx --no-build -c Release --verbosity normal
 
+      # Scoped to the test projects named directly after the three packages that ship (Contracts,
+      # Engine, Sdk) — not the plugin test projects, which test Star-Citizen-specific parsers that
+      # never leave this repo. GameCapture.Sdk.Testing ships too but is measured by its own
+      # dedicated suite, not this gate; -assemblyfilters below drops it out of the aggregate rather
+      # than let it sit half-counted (only incidentally touched via Engine.Tests' reference).
+      # Re-runs these three rather than reusing the Test step above because coverlet's collector
+      # only activates per-invocation via --collect, and mixing collected/uncollected projects in
+      # one `dotnet test GameCapture.slnx` call isn't possible — VSTest applies one settings file
+      # to the whole run.
+      - name: Test with coverage
+        shell: bash
+        run: |
+          rm -rf TestResults
+          for proj in GameCapture.Contracts.Tests GameCapture.Engine.Tests GameCapture.Sdk.Tests; do
+            dotnet test "tests/$proj/$proj.csproj" --no-build -c Release \
+              --collect:"XPlat Code Coverage" --settings coverlet.runsettings \
+              --results-directory TestResults
+          done
+          # A missing report would silently shrink the aggregate's denominator (e.g. the largest,
+          # least-covered assembly drops out and the remaining ones read comfortably over 60%)
+          # rather than fail loud, since `dotnet test` itself still exits 0 either way.
+          n=$(find TestResults -name coverage.cobertura.xml | wc -l)
+          if [ "$n" -ne 3 ]; then
+            echo "::error::expected 3 coverage.cobertura.xml reports, found $n"
+            exit 1
+          fi
+
+      - name: Coverage report
+        shell: bash
+        run: |
+          dotnet tool install --global dotnet-reportgenerator-globaltool --version 5.5.11 || \
+            dotnet tool update --global dotnet-reportgenerator-globaltool --version 5.5.11
+          reportgenerator -reports:"TestResults/**/coverage.cobertura.xml" \
+            -targetdir:"CoverageReport" -reporttypes:TextSummary \
+            -assemblyfilters:"-*.Tests;-GameCapture.Sdk.Testing"
+          cat CoverageReport/Summary.txt
+
+      # Line-only, 60% to start (per TASK-17): the bar the coverlet.runsettings exclusions were
+      # written against. Parses ReportGenerator's own summary rather than the raw cobertura XML —
+      # one line-coverage number already aggregated across all three projects' merged reports,
+      # instead of three separate rates this step would otherwise have to combine itself.
+      - name: Coverage gate
+        shell: bash
+        run: |
+          pct=$(grep -oP 'Line coverage:\s*\K[0-9]+([.,][0-9]+)?' CoverageReport/Summary.txt | head -1 | tr ',' '.')
+          if [ -z "$pct" ]; then
+            echo "::error::could not parse line coverage from CoverageReport/Summary.txt"
+            cat CoverageReport/Summary.txt
+            exit 1
+          fi
+          echo "Line coverage: $pct% (threshold 60%)"
+          # awk, not bc: bash on windows-latest is Git Bash (MSYS), which does not ship bc.
+          if awk -v p="$pct" 'BEGIN { exit !(p < 60) }'; then
+            echo "::error::Coverage $pct% is below the 60% gate."
+            exit 1
+          fi
+
       # A plugin owns parsing and nothing else: its code must not name a transport type (Grpc,
       # RpcException), the wire proto namespace, or the engine assembly. `dotnet build` cannot catch a
       # re-coupling — a plugin that added `using Grpc.Core;` still compiles — so this greps the plugin

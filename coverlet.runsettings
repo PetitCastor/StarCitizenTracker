@@ -34,8 +34,13 @@
   As before, there is no numeric threshold here: the gate is this exclusion policy, and the bar is
   read off the aggregate.
 
-  Usage (from the repo root):
-    dotnet test GameCapture.slnx --settings coverlet.runsettings --collect:"XPlat Code Coverage"
+  Usage (from the repo root): dotnet test against a project, passing this file via the `settings`
+  switch and turning on the collector via the `collect` switch with value "XPlat Code Coverage".
+  See .github/workflows/ci.yml's "Test with coverage" step for the exact invocation. Deliberately
+  not spelled out as a literal command line here: an XML comment cannot contain two adjacent ASCII
+  hyphens, and every CLI flag above needs exactly that — a previous version of this comment used
+  U+2011 non-breaking hyphens to dodge the rule, which is exactly the kind of thing a retype quietly
+  undoes.
 -->
 <RunSettings>
   <DataCollectionRunSettings>

@@ -1,7 +1,7 @@
 # GameCapture
 
 [![CI](https://github.com/PetitCastor/StarCitizenTracker/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/PetitCastor/StarCitizenTracker/actions/workflows/ci.yml)
-[![Release](https://github.com/PetitCastor/StarCitizenTracker/actions/workflows/release.yml/badge.svg?branch=master)](https://github.com/PetitCastor/StarCitizenTracker/releases)
+[![Release](https://github.com/PetitCastor/StarCitizenTracker/actions/workflows/release.yml/badge.svg)](https://github.com/PetitCastor/StarCitizenTracker/releases)
 
 <!-- NuGet badges (GameCapture.Sdk, GameCapture.Contracts, GameCapture.Sdk.Testing) land with the
      packaging/release work in TASK-16/17, once the packages are actually published. -->
