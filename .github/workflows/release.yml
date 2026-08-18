@@ -2,19 +2,25 @@ name: Release
 
 on:
   push:
-    branches: [master]
-
-permissions:
-  contents: write
+    tags: ['v*']
 
 jobs:
   release:
     name: Build & Release
     runs-on: windows-latest
+    environment: nuget-release
+    permissions:
+      id-token: write # mints the OIDC token — without it NuGet/login fails
+      contents: write # gh release create; a permissions block zeroes all unlisted scopes, so this
+                       # must be spelled out even though it was the workflow default before.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # Unshallow, and specifically for the tags: MinVer derives the version from the pushed
+          # tag itself now (the trigger IS the tag), but it still walks history to confirm there is
+          # nothing beyond it — a depth-1 clone carries no tags at all and MinVer falls back to
+          # 0.0.0-alpha.0.
           fetch-depth: 0
 
       - name: Setup .NET
@@ -22,27 +28,48 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Compute next version
-        shell: bash
-        run: |
-          git fetch --tags --force
-          latest=$(git tag -l 'v0.*.0' | sed -E 's/^v0\.([0-9]+)\.0$/\1/' | sort -n | tail -1)
-          latest=${latest:-0}
-          next=$((latest + 1))
-          echo "VERSION=v0.$next.0" >> "$GITHUB_ENV"
+      # Full suite, same as ci.yml — the tag push is not itself proof the suite is green (a tag can
+      # be pushed from any commit), so release re-verifies rather than trusting the CI run that may
+      # have happened on a different ref.
+      - name: Restore
+        run: dotnet restore GameCapture.slnx
 
-      # MinVerVersionOverride, because the tag this release is named for does not exist yet: it is
-      # created by `gh release create` two steps down. Left to derive its own version, MinVer would
-      # see only the PREVIOUS tag and stamp the engine 0.N.1-alpha.0.x — so a release labelled
-      # v0.13.0 would ship an exe reporting 0.12.1-alpha.0.7 as its engine_version over the wire.
-      # $VERSION already carries the leading v, which MinVerTagPrefix strips.
+      - name: Build
+        run: dotnet build GameCapture.slnx --no-restore -c Release
+
+      - name: Test
+        run: dotnet test GameCapture.slnx --no-build -c Release --verbosity normal
+
+      - name: Pack
+        run: dotnet pack GameCapture.slnx --no-build -c Release -o packages
+
+      # OIDC → short-lived API key, scoped to this job only. No NUGET_API_KEY secret exists anywhere
+      # in this repo: nothing long-lived to rotate or leak.
+      - name: NuGet login (Trusted Publishing)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Push packages
+        run: dotnet nuget push "packages/*.nupkg" --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      # REQUIRED as its own step. `packages/*.nupkg` does not glob-match `.snupkg`, so without this
+      # second push the symbol packages TASK-16 wired up (SourceLink + snupkg) build every release
+      # and ship never — and nobody notices, because the main push above succeeds on its own.
+      - name: Push symbol packages
+        run: dotnet nuget push "packages/*.snupkg" --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      # MinVerVersionOverride is gone: unlike the old auto-increment trigger, the tag this release is
+      # named for already exists (it's what triggered the run), so MinVer reads it directly off
+      # history without help.
       - name: Publish GameCapture.Engine
-        run: dotnet publish src/GameCapture.Engine -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:MinVerVersionOverride=$($env:VERSION.TrimStart('v')) -o publish/engine
+        run: dotnet publish src/GameCapture.Engine -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish/engine
 
       - name: Archive GameCapture.Engine
-        run: Compress-Archive publish/engine/* GameCapture.Engine-${env:VERSION}-win-x64.zip
+        run: Compress-Archive publish/engine/* GameCapture.Engine-${{ github.ref_name }}-win-x64.zip
 
       - name: Create release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create $env:VERSION GameCapture.Engine-*.zip --generate-notes
+        run: gh release create ${{ github.ref_name }} GameCapture.Engine-*.zip --generate-notes

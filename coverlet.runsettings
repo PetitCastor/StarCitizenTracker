@@ -34,8 +34,9 @@
   As before, there is no numeric threshold here: the gate is this exclusion policy, and the bar is
   read off the aggregate.
 
-  Usage (from the repo root):
-    dotnet test GameCapture.slnx --settings coverlet.runsettings --collect:"XPlat Code Coverage"
+  Usage (from the repo root; the double-hyphens below are U+2011 non-breaking hyphens, not ASCII
+  hyphen-minus — an XML comment cannot contain two adjacent ASCII hyphens):
+    dotnet test path/to/Some.Tests.csproj ‑‑settings coverlet.runsettings ‑‑collect:"XPlat Code Coverage"
 -->
 <RunSettings>
   <DataCollectionRunSettings>

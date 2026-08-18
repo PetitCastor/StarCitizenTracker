@@ -38,6 +38,47 @@ jobs:
       - name: Test
         run: dotnet test GameCapture.slnx --no-build -c Release --verbosity normal
 
+      # Scoped to the three packages that actually ship (Contracts/Sdk/Sdk.Testing consume this
+      # via the engine/plugin code the Contracts/Sdk/Engine test projects exercise) — not the
+      # plugin test projects, which test Star-Citizen-specific parsers that never leave this repo.
+      # Re-runs these three rather than reusing the Test step above because coverlet's collector
+      # only activates per-invocation via --collect, and mixing collected/uncollected projects in
+      # one `dotnet test GameCapture.slnx` call isn't possible — VSTest applies one settings file
+      # to the whole run.
+      - name: Test with coverage
+        shell: bash
+        run: |
+          rm -rf TestResults
+          for proj in GameCapture.Contracts.Tests GameCapture.Engine.Tests GameCapture.Sdk.Tests; do
+            dotnet test "tests/$proj/$proj.csproj" --no-build -c Release \
+              --collect:"XPlat Code Coverage" --settings coverlet.runsettings \
+              --results-directory TestResults
+          done
+
+      - name: Coverage report
+        shell: bash
+        run: |
+          dotnet tool install --global dotnet-reportgenerator-globaltool
+          reportgenerator -reports:"TestResults/**/coverage.cobertura.xml" \
+            -targetdir:"CoverageReport" -reporttypes:TextSummary \
+            -assemblyfilters:"-*.Tests"
+          cat CoverageReport/Summary.txt
+
+      # Line-only, 60% to start (per TASK-17): the bar the coverlet.runsettings exclusions were
+      # written against. Parses ReportGenerator's own summary rather than the raw cobertura XML —
+      # one line-coverage number already aggregated across all three projects' merged reports,
+      # instead of three separate rates this step would otherwise have to combine itself.
+      - name: Coverage gate
+        shell: bash
+        run: |
+          pct=$(grep -oP 'Line coverage:\s*\K[0-9]+(\.[0-9]+)?' CoverageReport/Summary.txt)
+          echo "Line coverage: $pct% (threshold 60%)"
+          # awk, not bc: bash on windows-latest is Git Bash (MSYS), which does not ship bc.
+          if awk -v p="$pct" 'BEGIN { exit !(p < 60) }'; then
+            echo "::error::Coverage $pct% is below the 60% gate."
+            exit 1
+          fi
+
       # A plugin owns parsing and nothing else: its code must not name a transport type (Grpc,
       # RpcException), the wire proto namespace, or the engine assembly. `dotnet build` cannot catch a
       # re-coupling — a plugin that added `using Grpc.Core;` still compiles — so this greps the plugin
